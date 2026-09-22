@@ -1,0 +1,32 @@
+# Example profile for a documentation host. Nothing here points at a real
+# system. Copy it, change the handshake and message map to match a target you
+# are authorized to test, and drive every capability from it.
+name: example-target
+channels:
+  - name: default
+    handshake:
+      url: wss://ws.example.test/socket
+      # Browsers forbid an Authorization header on a WebSocket, so a token
+      # commonly rides the query string or the subprotocol.
+      framing: json
+    auth:
+      # How a fresh token is acquired and where it goes.
+      login: token-file
+      token_file: ./token.txt
+      token_location: query
+      token_param: token
+      # per-dial mints a fresh token per connection, the safe default for
+      # single-use-token regimes.
+      refresh: per-dial
+    messages:
+      type_field: type
+      correlation_keys:
+        - cid
+      opcode_names:
+        whoami: whoami
+        read_note: read a note by owner
+        claim: claim a one-time grant
+    heartbeat:
+      types:
+        - ping
+        - pong

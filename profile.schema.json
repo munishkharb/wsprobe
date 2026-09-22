@@ -1,0 +1,322 @@
+{
+  "$defs": {
+    "Auth": {
+      "additionalProperties": false,
+      "description": "How a valid token is acquired, placed, and kept fresh.\n\nThe refresh policy is load-bearing: many targets mint a single-use token\nper connection, so re-authenticating mid-run revokes the token a live\nsocket is holding. per-dial mints one token per new dial; reuse harvests\none and holds it; ttl caches until an age limit.",
+      "properties": {
+        "command": {
+          "anyOf": [
+            {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Command"
+        },
+        "http": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/HttpLogin"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "login": {
+          "$ref": "#/$defs/LoginStep",
+          "default": "none"
+        },
+        "refresh": {
+          "$ref": "#/$defs/RefreshPolicy",
+          "default": "per-dial"
+        },
+        "token_extract": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Dot path into a login response JSON body, e.g. data.token.",
+          "title": "Token Extract"
+        },
+        "token_file": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Token File"
+        },
+        "token_location": {
+          "$ref": "#/$defs/TokenLocation",
+          "default": "query"
+        },
+        "token_param": {
+          "default": "token",
+          "description": "Query key, header name, subprotocol prefix, or login-frame field.",
+          "title": "Token Param",
+          "type": "string"
+        },
+        "ttl_seconds": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Ttl Seconds"
+        }
+      },
+      "title": "Auth",
+      "type": "object"
+    },
+    "Channel": {
+      "additionalProperties": false,
+      "description": "One authoritative socket. A target that runs several distinct sockets\ndeclares one channel each.",
+      "properties": {
+        "auth": {
+          "$ref": "#/$defs/Auth"
+        },
+        "handshake": {
+          "$ref": "#/$defs/Handshake"
+        },
+        "heartbeat": {
+          "$ref": "#/$defs/Heartbeat"
+        },
+        "messages": {
+          "$ref": "#/$defs/MessageMap"
+        },
+        "name": {
+          "title": "Name",
+          "type": "string"
+        }
+      },
+      "required": [
+        "name",
+        "handshake"
+      ],
+      "title": "Channel",
+      "type": "object"
+    },
+    "Framing": {
+      "enum": [
+        "json",
+        "socketio",
+        "length-prefixed",
+        "binary"
+      ],
+      "title": "Framing",
+      "type": "string"
+    },
+    "Handshake": {
+      "additionalProperties": false,
+      "description": "How to open the socket. Where the token goes is on Auth, since the\nengine has to fetch a token before it can place it here.",
+      "properties": {
+        "framing": {
+          "$ref": "#/$defs/Framing",
+          "default": "json"
+        },
+        "headers": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "title": "Headers",
+          "type": "object"
+        },
+        "origin": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Origin"
+        },
+        "query": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "title": "Query",
+          "type": "object"
+        },
+        "subprotocol": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Subprotocol"
+        },
+        "url": {
+          "description": "Upgrade URL, ws:// or wss://.",
+          "title": "Url",
+          "type": "string"
+        }
+      },
+      "required": [
+        "url"
+      ],
+      "title": "Handshake",
+      "type": "object"
+    },
+    "Heartbeat": {
+      "additionalProperties": false,
+      "description": "The keepalive pattern to drop, so correlation and discovery stay\nreadable on a busy socket.",
+      "properties": {
+        "payloads": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Payloads",
+          "type": "array"
+        },
+        "types": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Types",
+          "type": "array"
+        }
+      },
+      "title": "Heartbeat",
+      "type": "object"
+    },
+    "HttpLogin": {
+      "additionalProperties": false,
+      "properties": {
+        "body": {
+          "additionalProperties": true,
+          "title": "Body",
+          "type": "object"
+        },
+        "headers": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "title": "Headers",
+          "type": "object"
+        },
+        "method": {
+          "default": "POST",
+          "title": "Method",
+          "type": "string"
+        },
+        "url": {
+          "title": "Url",
+          "type": "string"
+        }
+      },
+      "required": [
+        "url"
+      ],
+      "title": "HttpLogin",
+      "type": "object"
+    },
+    "LoginStep": {
+      "enum": [
+        "none",
+        "http",
+        "command",
+        "token-file"
+      ],
+      "title": "LoginStep",
+      "type": "string"
+    },
+    "MessageMap": {
+      "additionalProperties": false,
+      "description": "The message vocabulary: the field that names a type, the keys that pair\na request to its reply, and optional human names for opcodes.",
+      "properties": {
+        "correlation_keys": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Correlation Keys",
+          "type": "array"
+        },
+        "opcode_names": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "title": "Opcode Names",
+          "type": "object"
+        },
+        "type_field": {
+          "default": "type",
+          "title": "Type Field",
+          "type": "string"
+        }
+      },
+      "title": "MessageMap",
+      "type": "object"
+    },
+    "RefreshPolicy": {
+      "enum": [
+        "per-dial",
+        "reuse",
+        "ttl"
+      ],
+      "title": "RefreshPolicy",
+      "type": "string"
+    },
+    "TokenLocation": {
+      "enum": [
+        "query",
+        "header",
+        "subprotocol",
+        "login-frame"
+      ],
+      "title": "TokenLocation",
+      "type": "string"
+    }
+  },
+  "$id": "https://wsprobe.example.test/schemas/profile.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "description": "A portable, reusable description of one target's WebSocket surface.",
+  "properties": {
+    "channels": {
+      "items": {
+        "$ref": "#/$defs/Channel"
+      },
+      "minItems": 1,
+      "title": "Channels",
+      "type": "array"
+    },
+    "name": {
+      "title": "Name",
+      "type": "string"
+    }
+  },
+  "required": [
+    "name",
+    "channels"
+  ],
+  "title": "wsprobe profile",
+  "type": "object"
+}
