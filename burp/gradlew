@@ -1,0 +1,18 @@
+#!/bin/sh
+# Gradle start-up script for POSIX. Standard wrapper launcher.
+# Requires gradle/wrapper/gradle-wrapper.jar (generate once with `gradle wrapper`).
+set -e
+APP_HOME=$(cd "$(dirname "$0")" && pwd)
+WRAPPER_JAR="$APP_HOME/gradle/wrapper/gradle-wrapper.jar"
+if [ ! -f "$WRAPPER_JAR" ]; then
+  echo "gradle-wrapper.jar is missing. Generate it once with a system Gradle:" >&2
+  echo "    gradle wrapper --gradle-version 8.7" >&2
+  echo "or build with a system Gradle directly:  gradle build" >&2
+  exit 1
+fi
+if [ -n "$JAVA_HOME" ] && [ -x "$JAVA_HOME/bin/java" ]; then
+  JAVACMD="$JAVA_HOME/bin/java"
+else
+  JAVACMD="java"
+fi
+exec "$JAVACMD" -classpath "$WRAPPER_JAR" org.gradle.wrapper.GradleWrapperMain "$@"
