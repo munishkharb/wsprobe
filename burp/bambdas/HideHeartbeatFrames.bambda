@@ -1,0 +1,48 @@
+id: 29d22602-2a67-4278-82c6-fee1676ce47e
+name: Hide WebSocket heartbeat frames
+function: VIEW_FILTER
+location: PROXY_WEBSOCKET
+source: |+
+  // SPDX-License-Identifier: MIT
+  // wsprobe companion Bambda - part of the wsprobe toolkit, MIT licensed.
+  //
+  // WHERE IT GOES: Proxy > WebSockets history > filter bar > pencil/Bambda icon
+  //   > Filter, then paste this body (or import this .bambda file). Set the WS
+  //   history filter to "Bambda" mode and it applies to the table.
+  //
+  // WHAT IT DOES: hides keepalive/heartbeat frames so a busy socket stays
+  //   readable. It returns false (row hidden) for the same frames the wsprobe
+  //   companion marks as heartbeats, so the history matches the drafted profile:
+  //     - Engine.IO / Socket.IO bare ping "2" and pong "3";
+  //     - an app-level JSON frame whose type-naming key (type, event, op,
+  //       action, method, cmd) carries ping, pong, heartbeat, hb, or keepalive;
+  //     - any frame the companion already tagged "wsprobe: heartbeat".
+  //   Everything else shows. Nothing is dropped on the wire; this is view only.
+
+  // Frames the companion already classified are tagged in the Notes column.
+  if (message.annotations().hasNotes()
+      && message.annotations().notes().toLowerCase().contains("wsprobe: heartbeat")) {
+    return false;
+  }
+
+  String payload = utilities().byteUtils().convertToString(message.payload().getBytes()).trim();
+  if (payload.isEmpty()) {
+    return true;
+  }
+
+  // Engine.IO / Socket.IO bare ping (2) and pong (3).
+  if (payload.equals("2") || payload.equals("3")) {
+    return false;
+  }
+
+  // App-level JSON keepalive: a conventional type key naming a heartbeat value.
+  // Case-insensitive, tolerant of whitespace around the colon and single or
+  // double quotes, matching the companion's heartbeat hint set.
+  Pattern heartbeat = Pattern.compile(
+      "[\"'](?:type|event|op|action|method|cmd)[\"']\\s*:\\s*[\"'](?:ping|pong|heartbeat|hb|keepalive)[\"']",
+      Pattern.CASE_INSENSITIVE);
+  if (heartbeat.matcher(payload).find()) {
+    return false;
+  }
+
+  return true;

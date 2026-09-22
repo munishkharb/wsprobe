@@ -1,0 +1,97 @@
+id: b38a51ea-e625-45d3-a2c5-b56e657c1037
+name: Fresh token from WebSocket handshake
+function: CUSTOM_ACTION
+location: PROXY_HTTP_HISTORY
+source: |+
+  // SPDX-License-Identifier: MIT
+  // wsprobe companion Bambda - part of the wsprobe toolkit, MIT licensed.
+  //
+  // WHERE IT GOES: Proxy > HTTP history > select the WebSocket upgrade
+  //   request(s) (the GET with "Upgrade: websocket") > right-click > Extensions
+  //   > Custom action, then paste this body (or import this .bambda file) and
+  //   run it. Output prints to Extensions > (Bambda) output / the event log,
+  //   and the freshest token is copied to the clipboard.
+  //
+  // WHAT IT DOES: a socket you reconnect by hand needs the current token, and a
+  //   browser cannot set an Authorization header on a WebSocket, so the token
+  //   rides in the handshake somewhere. This pulls it from the selected upgrade
+  //   request, checking the same places the wsprobe companion infers auth from,
+  //   in order: the query string (token, access_token, jwt, ...), then the
+  //   Sec-WebSocket-Protocol header, the Authorization header, and finally a
+  //   Cookie of the same conventional name. It copies the value so you can paste
+  //   a live token into wsprobe or a manual reconnect. Read-only: it sends
+  //   nothing and changes no request.
+
+  var request = requestResponse.request();
+
+  // Only act on an actual WebSocket upgrade.
+  String upgrade = request.headerValue("Upgrade");
+  if (upgrade == null || !upgrade.equalsIgnoreCase("websocket")) {
+    logging.logToOutput("wsprobe: not a WebSocket upgrade request (no 'Upgrade: websocket'); skipping " + request.url());
+    return;
+  }
+
+  // Conventional token key names, kept in step with the companion's hints.
+  List<String> tokenKeys = List.of(
+      "token", "access_token", "accessToken", "jwt", "auth", "authorization", "apikey", "api_key");
+
+  String found = null;
+  String source = null;
+
+  // 1) Query string - the most common WebSocket token carrier.
+  for (String key : tokenKeys) {
+    if (request.hasParameter(key, HttpParameterType.URL)) {
+      found = request.parameter(key, HttpParameterType.URL).value();
+      source = "query param '" + key + "'";
+      break;
+    }
+  }
+
+  // 2) Sec-WebSocket-Protocol - some servers smuggle a bearer token here.
+  if (found == null) {
+    String proto = request.headerValue("Sec-WebSocket-Protocol");
+    if (proto != null && !proto.isBlank()) {
+      // Often "bearer, <token>" or "access_token, <token>"; take the last part.
+      String[] parts = proto.split(",");
+      String candidate = parts[parts.length - 1].trim();
+      if (!candidate.isEmpty()) {
+        found = candidate;
+        source = "Sec-WebSocket-Protocol header";
+      }
+    }
+  }
+
+  // 3) Authorization header (present on non-browser clients).
+  if (found == null) {
+    String authz = request.headerValue("Authorization");
+    if (authz != null && !authz.isBlank()) {
+      found = authz.replaceFirst("(?i)^bearer\\s+", "").trim();
+      source = "Authorization header";
+    }
+  }
+
+  // 4) A cookie of a conventional token name.
+  if (found == null) {
+    for (String key : tokenKeys) {
+      if (request.hasParameter(key, HttpParameterType.COOKIE)) {
+        found = request.parameter(key, HttpParameterType.COOKIE).value();
+        source = "cookie '" + key + "'";
+        break;
+      }
+    }
+  }
+
+  if (found == null || found.isBlank()) {
+    logging.logToOutput("wsprobe: no conventional token found on the handshake " + request.url()
+        + " (check the query, Sec-WebSocket-Protocol, Authorization, or a cookie by hand).");
+    return;
+  }
+
+  try {
+    java.awt.Toolkit.getDefaultToolkit().getSystemClipboard()
+        .setContents(new java.awt.datatransfer.StringSelection(found), null);
+    logging.logToOutput("wsprobe: fresh token from " + source + " copied to clipboard (" + found.length() + " chars) for " + request.url());
+  } catch (Exception e) {
+    logging.logToOutput("wsprobe: fresh token from " + source + " for " + request.url() + ": " + found);
+    logging.logToError("wsprobe: clipboard copy failed, token logged instead: " + e.getMessage());
+  }
