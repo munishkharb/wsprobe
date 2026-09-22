@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-// wsprobe Burp companion — part of the wsprobe toolkit, MIT licensed.
+// wsprobe Burp companion - part of the wsprobe toolkit, MIT licensed.
 // See ../../../../README.md and the repository LICENSE.
 
 package wsprobe.burp

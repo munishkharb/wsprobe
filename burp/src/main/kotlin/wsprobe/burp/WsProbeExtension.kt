@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-// wsprobe Burp companion — part of the wsprobe toolkit, MIT licensed.
+// wsprobe Burp companion - part of the wsprobe toolkit, MIT licensed.
 // Clean-room, no target and no default host. Ships nothing to point at.
 
 package wsprobe.burp
@@ -81,7 +81,7 @@ class WsProbeExtension : BurpExtension {
             if (isHeartbeat) {
                 // Heartbeat filter: mark keepalives so they can be filtered in
                 // the WebSocket history. Montoya has no "hide from history" API,
-                // so a distinct color + note is the honest equivalent — the
+                // so a distinct color + note is the honest equivalent - the
                 // operator filters or sorts on it. The frame is not dropped.
                 try {
                     message.annotations().setHighlightColor(HighlightColor.GRAY)

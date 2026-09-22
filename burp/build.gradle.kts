@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-// wsprobe Burp companion — build file. Part of the wsprobe toolkit, MIT licensed.
+// wsprobe Burp companion - build file. Part of the wsprobe toolkit, MIT licensed.
 
 import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 

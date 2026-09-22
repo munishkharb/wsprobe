@@ -6,8 +6,8 @@ frames in the WebSocket history so a busy socket stays readable.
 
 It is a companion, not the tool. wsprobe owns its own authenticated sockets and
 covers the handshake and authorization surface end to end; this extension only
-gives it a running start on the one target-specific artifact wsprobe needs — the
-profile — by watching real traffic instead of an exported capture.
+gives it a running start on the one target-specific artifact wsprobe needs - the
+profile - by watching real traffic instead of an exported capture.
 
 ## What it does
 
@@ -17,13 +17,13 @@ Two jobs, nothing else.
    the extension watches every WebSocket it proxies: the upgrade request (URL,
    `Origin`, negotiated subprotocol, and the query string) and each text frame.
    From the frames it infers the message vocabulary the same way wsprobe's
-   offline capture analyzer does — the field that names a message type, the keys
+   offline capture analyzer does - the field that names a message type, the keys
    that correlate a request to its reply, and which message types are
    keepalives. On demand (**wsprobe > Write draft profile.yaml**) it writes a
    `profile.yaml` in the exact shape wsprobe loads.
 
    The advantage over an offline export: a live handshake carries the real
-   upgrade URL, the `Origin`, the subprotocol, and — read conservatively — where
+   upgrade URL, the `Origin`, the subprotocol, and - read conservatively - where
    a token rides in the query string. The offline analyzer has to stub those.
 
 2. **Heartbeat filter for the WebSocket history.** Keepalive frames (an
@@ -60,7 +60,7 @@ back in (wsprobe restores the defaults on load).
 | `heartbeat.types`               | The keepalive message types observed (`ping`/`pong`/`heartbeat`/... and Engine.IO `2`/`3`). |
 
 The auth *source* (a login command, an HTTP login recipe, or a shared token
-file) and the refresh policy are never guessed from traffic — you fill those in.
+file) and the refresh policy are never guessed from traffic - you fill those in.
 The draft gets you the handshake and the message map; you finish the auth block.
 
 ## Build

@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-// wsprobe Burp companion — part of the wsprobe toolkit, MIT licensed.
+// wsprobe Burp companion - part of the wsprobe toolkit, MIT licensed.
 
 package wsprobe.burp
 
@@ -19,8 +19,8 @@ import java.net.URI
  *     from the opcode map and recorded under heartbeat.types.
  *
  * The one thing live traffic gives that an offline stub URL cannot is a real
- * handshake: the upgrade URL, Origin, negotiated subprotocol, and — read
- * conservatively — where a token rides in the query string.
+ * handshake: the upgrade URL, Origin, negotiated subprotocol, and - read
+ * conservatively - where a token rides in the query string.
  */
 class DraftBuilder(private val channelName: String = "default") {
 
