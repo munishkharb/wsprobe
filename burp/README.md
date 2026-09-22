@@ -11,7 +11,7 @@ profile - by watching real traffic instead of an exported capture.
 
 ## What it does
 
-Two jobs, nothing else.
+Three jobs.
 
 1. **Draft a profile from live traffic.** As you browse a target through Burp,
    the extension watches every WebSocket it proxies: the upgrade request (URL,
@@ -33,11 +33,26 @@ Two jobs, nothing else.
    Burp's API has no "hide from history" switch, so marking is the honest
    equivalent; the frame is never dropped or altered in flight.
 
+3. **Run wsprobe from Burp.** Once a profile exists, **wsprobe > Run wsprobe**
+   drives the CLI for you: **Handshake matrix** and **Two-account diff**. The
+   extension shells out to the `wsprobe` binary with `--json` against the profile
+   you pick (defaulting to the one the companion just drafted), parses the stable
+   JSON, and renders the observations in the **wsprobe** suite tab. The matrix
+   run takes an optional valid token file; the diff run asks for a frame and two
+   token files. Where the `wsprobe` binary lives is configurable under **wsprobe
+   > Configure wsprobe path...** (for example, your venv's `.venv/bin/wsprobe`);
+   with nothing set, the extension looks for `wsprobe` on your `PATH`. If it
+   cannot find the CLI, it says so plainly rather than failing silently. As
+   everywhere in wsprobe, the panel reports observed behavior and never the word
+   "confirmed".
+
 A target that runs several distinct sockets drafts one channel each, keyed by
 host and path.
 
-Everything above is read-only on the wire. The extension opens no socket of its
-own and sends nothing. It writes exactly one file, where you choose to put it.
+Drafting and the heartbeat filter are read-only on the wire: the extension opens
+no socket of its own and sends nothing. Run wsprobe is the one action that
+reaches a target, and it does so through the wsprobe CLI against a profile you
+chose, for a system you are authorized to test.
 
 ## How the drafted profile maps to `profile.schema.json`
 

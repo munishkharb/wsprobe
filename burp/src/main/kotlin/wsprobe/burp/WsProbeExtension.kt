@@ -16,14 +16,21 @@ import burp.api.montoya.proxy.websocket.ProxyWebSocketCreationHandler
 import burp.api.montoya.proxy.websocket.TextMessageReceivedAction
 import burp.api.montoya.proxy.websocket.TextMessageToBeSentAction
 import burp.api.montoya.proxy.websocket.BinaryMessageToBeSentAction
-import burp.api.montoya.ui.menu.BasicMenuItem
-import burp.api.montoya.ui.menu.Menu
+import java.awt.BorderLayout
+import java.awt.Font
 import java.net.URI
 import java.nio.file.Files
+import java.nio.file.Path
 import java.nio.file.Paths
 import java.util.concurrent.ConcurrentHashMap
+import javax.swing.JComponent
 import javax.swing.JFileChooser
+import javax.swing.JMenu
+import javax.swing.JMenuItem
 import javax.swing.JOptionPane
+import javax.swing.JPanel
+import javax.swing.JScrollPane
+import javax.swing.JTextArea
 import javax.swing.SwingUtilities
 
 /**
@@ -46,18 +53,41 @@ class WsProbeExtension : BurpExtension {
     private val builders = ConcurrentHashMap<String, DraftBuilder>()
     private val channelOrder = ArrayList<String>()
 
+    // The last profile this session drafted, offered as the default when the
+    // operator runs wsprobe against "the profile the companion drafted".
+    @Volatile private var lastDraftPath: Path? = null
+
+    // The results tab: rendered output of each Run wsprobe invocation.
+    private val results = JTextArea().apply {
+        isEditable = false
+        lineWrap = false
+        font = Font(Font.MONOSPACED, Font.PLAIN, 12)
+        text = "wsprobe results\n\nRun wsprobe from the wsprobe menu to drive the CLI against a profile.\n"
+    }
+
+    private val processRunner = ProcessRunner()
+
     override fun initialize(api: MontoyaApi) {
         this.api = api
         api.extension().setName("wsprobe companion")
 
         api.proxy().registerWebSocketCreationHandler(CreationHandler())
+        api.userInterface().registerSuiteTab("wsprobe", resultsComponent())
         registerMenu()
 
         api.logging().logToOutput(
             "wsprobe companion loaded. Proxy WebSocket traffic, then " +
                 "wsprobe > Write draft profile.yaml to emit a profile. " +
+                "Run wsprobe > Handshake matrix / Two-account diff drives the CLI " +
+                "and shows the observations in the wsprobe tab. " +
                 "Keepalive frames are marked gray with a 'wsprobe: heartbeat' note."
         )
+    }
+
+    private fun resultsComponent(): JComponent {
+        val panel = JPanel(BorderLayout())
+        panel.add(JScrollPane(results), BorderLayout.CENTER)
+        return panel
     }
 
     // ---- handshake + frame observation -------------------------------------
@@ -115,16 +145,32 @@ class WsProbeExtension : BurpExtension {
     // ---- draft emission ----------------------------------------------------
 
     private fun registerMenu() {
-        val write = BasicMenuItem.basicMenuItem("Write draft profile.yaml")
-            .withAction { SwingUtilities.invokeLater { writeDraft() } }
-        val clear = BasicMenuItem.basicMenuItem("Reset observed traffic")
-            .withAction {
-                builders.clear()
-                synchronized(channelOrder) { channelOrder.clear() }
-                api.logging().logToOutput("wsprobe companion: observed traffic reset.")
-            }
-        api.userInterface().menuBar().registerMenu(Menu.menu("wsprobe").withMenuItems(write, clear))
+        // A Swing JMenu, because the Montoya Menu has no submenu nesting and the
+        // Run actions read best as a "Run wsprobe" submenu. registerMenu accepts
+        // a JMenu directly.
+        val menu = JMenu("wsprobe")
+
+        menu.add(item("Write draft profile.yaml") { writeDraft() })
+        menu.add(item("Reset observed traffic") {
+            builders.clear()
+            synchronized(channelOrder) { channelOrder.clear() }
+            api.logging().logToOutput("wsprobe companion: observed traffic reset.")
+        })
+
+        menu.addSeparator()
+        val run = JMenu("Run wsprobe")
+        run.add(item("Handshake matrix") { runMatrix() })
+        run.add(item("Two-account diff") { runDiff() })
+        menu.add(run)
+
+        menu.addSeparator()
+        menu.add(item("Configure wsprobe path...") { configureBinary() })
+
+        api.userInterface().menuBar().registerMenu(menu)
     }
+
+    private fun item(label: String, action: () -> Unit): JMenuItem =
+        JMenuItem(label).apply { addActionListener { SwingUtilities.invokeLater(action) } }
 
     private fun writeDraft() {
         val ready = builders.values.any { it.hasEvidence() }
@@ -169,6 +215,7 @@ class WsProbeExtension : BurpExtension {
         val out = chooser.selectedFile.toPath()
         try {
             Files.writeString(out, yaml)
+            lastDraftPath = out
             api.logging().logToOutput(
                 "wsprobe companion: wrote $out " +
                     "(${channels.size} channel(s), $frames frames observed, $dropped heartbeats marked)."
@@ -184,6 +231,117 @@ class WsProbeExtension : BurpExtension {
             JOptionPane.showMessageDialog(
                 null, "Failed to write profile: ${e.message}", "wsprobe companion", JOptionPane.ERROR_MESSAGE,
             )
+        }
+    }
+
+    // ---- invocation tier: run the wsprobe CLI ------------------------------
+
+    private fun configureBinary() {
+        val current = api.persistence().preferences().getString(WsProbeCli.PREF_BINARY) ?: ""
+        val input = JOptionPane.showInputDialog(
+            null,
+            "Path to the wsprobe binary (e.g. /path/to/.venv/bin/wsprobe).\n" +
+                "Leave blank to clear and fall back to a PATH lookup.",
+            current,
+        ) ?: return
+        val value = input.trim()
+        if (value.isEmpty()) {
+            api.persistence().preferences().deleteString(WsProbeCli.PREF_BINARY)
+            api.logging().logToOutput("wsprobe companion: wsprobe path cleared; using PATH lookup.")
+        } else {
+            api.persistence().preferences().setString(WsProbeCli.PREF_BINARY, value)
+            api.logging().logToOutput("wsprobe companion: wsprobe path set to $value.")
+        }
+    }
+
+    /** Resolve the binary, warning the operator plainly when it cannot be found. */
+    private fun resolveBinaryOrWarn(): String? {
+        val pref = api.persistence().preferences().getString(WsProbeCli.PREF_BINARY)
+        val binary = WsProbeCli.resolveBinary(pref, System.getenv("PATH")) { Files.isRegularFile(Paths.get(it)) }
+        if (binary == null) {
+            JOptionPane.showMessageDialog(
+                null,
+                "Could not find the wsprobe CLI.\n\n" +
+                    "Set its path with wsprobe > Configure wsprobe path... " +
+                    "(for example, your venv's .venv/bin/wsprobe), or put wsprobe on your PATH.",
+                "wsprobe companion",
+                JOptionPane.ERROR_MESSAGE,
+            )
+        }
+        return binary
+    }
+
+    private fun runMatrix() {
+        val binary = resolveBinaryOrWarn() ?: return
+        val profile = chooseProfile() ?: return
+        // An optional valid token, used by the Origin and cross-user rows.
+        val token = chooseTokenFile("Select a valid token file (optional; Cancel to skip)")
+        val argv = WsProbeCli.matrixArgs(binary, profile.toString(), token?.toString())
+        runAsync("matrix", argv)
+    }
+
+    private fun runDiff() {
+        val binary = resolveBinaryOrWarn() ?: return
+        val profile = chooseProfile() ?: return
+        val frame = JOptionPane.showInputDialog(
+            null,
+            "Frame to send from both identities, as JSON:",
+            "{\"type\":\"read_note\",\"owner\":\"<id>\"}",
+        )?.trim() ?: return
+        if (frame.isEmpty()) return
+        val tokenA = chooseTokenFile("Select the token file for identity A") ?: return
+        val tokenB = chooseTokenFile("Select the token file for identity B") ?: return
+        val argv = WsProbeCli.diffArgs(binary, profile.toString(), frame, tokenA.toString(), tokenB.toString())
+        runAsync("diff", argv)
+    }
+
+    /** Run the CLI off the EDT, then render its JSON back into the results tab. */
+    private fun runAsync(label: String, argv: List<String>) {
+        appendResult("$ ${argv.joinToString(" ")}\n")
+        Thread {
+            val outcome = processRunner.run(argv)
+            SwingUtilities.invokeLater {
+                if (outcome.error != null) {
+                    appendResult("[error] ${outcome.error}\n")
+                    JOptionPane.showMessageDialog(
+                        null, outcome.error, "wsprobe companion", JOptionPane.ERROR_MESSAGE,
+                    )
+                } else if (!outcome.ok) {
+                    val msg = outcome.stderr.ifBlank { outcome.stdout }.trim()
+                    appendResult("[exit ${outcome.exitCode}] $msg\n")
+                    JOptionPane.showMessageDialog(
+                        null,
+                        "wsprobe exited with ${outcome.exitCode}:\n\n${msg.take(2000)}",
+                        "wsprobe companion",
+                        JOptionPane.ERROR_MESSAGE,
+                    )
+                } else {
+                    appendResult(WsProbeRender.render(outcome.stdout) + "\n")
+                }
+                api.logging().logToOutput("wsprobe companion: $label run finished (exit ${outcome.exitCode}).")
+            }
+        }.apply { isDaemon = true; name = "wsprobe-$label"; start() }
+    }
+
+    private fun chooseProfile(): Path? {
+        val chooser = JFileChooser().apply {
+            dialogTitle = "Choose a wsprobe profile to run"
+            lastDraftPath?.let { selectedFile = it.toFile() }
+        }
+        if (chooser.showOpenDialog(null) != JFileChooser.APPROVE_OPTION) return null
+        return chooser.selectedFile.toPath()
+    }
+
+    private fun chooseTokenFile(title: String): Path? {
+        val chooser = JFileChooser().apply { dialogTitle = title }
+        if (chooser.showOpenDialog(null) != JFileChooser.APPROVE_OPTION) return null
+        return chooser.selectedFile.toPath()
+    }
+
+    private fun appendResult(text: String) {
+        SwingUtilities.invokeLater {
+            results.append("\n" + "-".repeat(72) + "\n" + text)
+            results.caretPosition = results.document.length
         }
     }
 
