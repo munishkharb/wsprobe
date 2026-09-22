@@ -14,6 +14,8 @@ import burp.api.montoya.proxy.websocket.ProxyMessageHandler
 import burp.api.montoya.proxy.websocket.ProxyWebSocketCreation
 import burp.api.montoya.proxy.websocket.ProxyWebSocketCreationHandler
 import burp.api.montoya.proxy.websocket.TextMessageReceivedAction
+import burp.api.montoya.proxy.websocket.TextMessageToBeSentAction
+import burp.api.montoya.proxy.websocket.BinaryMessageToBeSentAction
 import burp.api.montoya.ui.menu.BasicMenuItem
 import burp.api.montoya.ui.menu.Menu
 import java.net.URI
@@ -96,6 +98,17 @@ class WsProbeExtension : BurpExtension {
         override fun handleBinaryMessageReceived(message: InterceptedBinaryMessage): BinaryMessageReceivedAction {
             // Binary framing is profile-declared, not inferred here; pass through.
             return BinaryMessageReceivedAction.continueWith(message)
+        }
+
+        // Outbound (client-to-server) frames: the extension is read-only on the
+        // wire and drafts from received traffic, so these pass straight through
+        // unaltered. Implemented because ProxyMessageHandler requires them.
+        override fun handleTextMessageToBeSent(message: InterceptedTextMessage): TextMessageToBeSentAction {
+            return TextMessageToBeSentAction.continueWith(message)
+        }
+
+        override fun handleBinaryMessageToBeSent(message: InterceptedBinaryMessage): BinaryMessageToBeSentAction {
+            return BinaryMessageToBeSentAction.continueWith(message)
         }
     }
 

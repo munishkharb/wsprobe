@@ -80,7 +80,7 @@ gradle wrapper --gradle-version 8.7   # writes gradle/wrapper/gradle-wrapper.jar
 
 Requirements:
 
-- **JDK 17+** to run the build (a JDK 17–21 is the safe range for the pinned
+- **JDK 17+** to run the build (a JDK 17-21 is the safe range for the pinned
   Gradle 8.7; a JDK newer than that needs a correspondingly newer Gradle).
 - **Network access** on the first build to fetch the Montoya API and SnakeYAML
   from Maven Central, and the Gradle distribution if you use the wrapper.
