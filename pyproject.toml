@@ -1,0 +1,32 @@
+[project]
+name = "wsprobe"
+version = "0.1.0"
+description = "A WebSocket security review toolkit that opens its own authenticated socket and covers one protocol surface end to end."
+readme = "README.md"
+license = { text = "MIT" }
+requires-python = ">=3.12"
+authors = [{ name = "Munish Kharb" }]
+keywords = ["websocket", "security", "authorization", "bola", "cswsh", "pentest"]
+dependencies = [
+    "websockets>=13.0",
+    "pydantic>=2.7",
+    "typer>=0.12",
+    "PyYAML>=6.0",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8.0", "pytest-asyncio>=0.24"]
+
+[project.scripts]
+wsprobe = "wsprobe.cli:app"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/wsprobe"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
