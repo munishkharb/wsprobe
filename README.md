@@ -74,6 +74,38 @@ operator, after live reproduction. An observation of an insecure shape (an
 upgrade accepted with no credentials, two identities receiving the same private
 reply) is a lead to reproduce, not a finding the tool has closed.
 
+## JSON output
+
+The observation verbs default to a human table. Pass `--json` to `matrix`,
+`diff`, `sweep`, or `analyze` for a stable, documented structure a script or the
+Burp companion panel can parse instead. Each payload carries a `schema` tag of
+the form `wsprobe.<command>/v1` and a `command` field, so a reader dispatches on
+`schema` and trusts the keys under it. The reading vocabulary is the same one the
+tables use, and the word "confirmed" never appears there either. The single
+source of the shapes is `src/wsprobe/jsonout.py`.
+
+```
+wsprobe matrix profile.yaml --token-file valid.tok --json
+```
+
+```json
+{
+  "schema": "wsprobe.matrix/v1",
+  "command": "matrix",
+  "profile": "drafted-target",
+  "channel": "default",
+  "observations": [
+    {"check": "unauth-upgrade", "observed": "upgraded-without-auth",
+     "reading": "insecure-shape", "detail": {"upgraded": true, "error": null}}
+  ]
+}
+```
+
+`diff` emits `frame`, `identity_a`/`identity_b`, `reading`, and `reply_a`/`reply_b`;
+`sweep` emits `field`, `distinct_replies`, and `rows`; `analyze` emits the frame
+`inventory` and `correlations`. See `src/wsprobe/jsonout.py` for the full field
+list of each.
+
 ## The Python API is the real surface
 
 Every capability runs from a first-class Python API; the CLI verbs are thin

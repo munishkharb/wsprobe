@@ -10,6 +10,7 @@ from __future__ import annotations
 from .analyzer import Analysis, analyze, draft_profile, emit_draft_profile
 from .authz import DiffResult, SweepResult, field_sweep, two_account_diff
 from .connection import Connection, ConnectionManager, DialOptions
+from .jsonout import analyze_payload, diff_payload, matrix_payload, sweep_payload
 from .matrix import Observation, run_matrix, run_matrix_sync
 from .profile import Profile, dump_profile, load_profile
 from .replay import ReplayResult, replay, replay_capture
@@ -29,6 +30,10 @@ __all__ = [
     "Connection",
     "ConnectionManager",
     "DialOptions",
+    "analyze_payload",
+    "diff_payload",
+    "matrix_payload",
+    "sweep_payload",
     "Observation",
     "run_matrix",
     "run_matrix_sync",

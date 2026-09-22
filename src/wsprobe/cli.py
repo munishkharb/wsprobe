@@ -15,7 +15,7 @@ from typing import Optional
 
 import typer
 
-from . import analyzer, authz, matrix
+from . import analyzer, authz, jsonout, matrix
 from .connection import ConnectionManager
 from .replay import replay_capture as _replay_capture
 from .profile import load_profile
@@ -75,6 +75,7 @@ def matrix_cmd(
     as_json: bool = typer.Option(False, "--json", help="Emit observations as JSON."),
 ) -> None:
     """Run the handshake security matrix and report observations."""
+    p = load_profile(profile)
     mgr = _manager(profile, channel, token_file, "matrix", tls_verify=not no_tls_verify)
     obs = asyncio.run(
         matrix.run_matrix(
@@ -86,7 +87,8 @@ def matrix_cmd(
         )
     )
     if as_json:
-        typer.echo(json.dumps(matrix.observations_to_dicts(obs), indent=2))
+        payload = jsonout.matrix_payload(obs, profile=p.name, channel=mgr.channel.name)
+        typer.echo(jsonout.dumps(payload))
         return
     for o in obs:
         typer.echo(o.line())
@@ -109,6 +111,7 @@ def analyze(
     captures: list[str] = typer.Argument(..., help="One or more capture files (NDJSON or a proxy export)."),
     emit_profile: Optional[str] = typer.Option(None, help="Write a draft profile.yaml from the capture."),
     url: str = typer.Option("wss://ws.example.test/socket", help="Handshake URL stub for the draft profile."),
+    as_json: bool = typer.Option(False, "--json", help="Emit the analysis as JSON."),
 ) -> None:
     """Inventory message types, correlate replies, and optionally emit a draft profile."""
     records: list = []
@@ -117,6 +120,11 @@ def analyze(
     for c in captures:
         records.extend(read_capture(c))
     result = analyzer.analyze(records)
+    if as_json:
+        typer.echo(jsonout.dumps(jsonout.analyze_payload(result, sources=captures)))
+        if emit_profile:
+            analyzer.emit_draft_profile(captures, emit_profile, url=url)
+        return
     typer.echo(f"frames={result.total_frames} heartbeats_dropped={result.dropped_heartbeats}")
     typer.echo(f"type_field={result.type_field!r} correlation_keys={result.correlation_keys}")
     typer.echo("message inventory:")
@@ -137,12 +145,17 @@ def diff(
     name_a: str = "A",
     name_b: str = "B",
     channel: Optional[str] = None,
+    as_json: bool = typer.Option(False, "--json", help="Emit the diff observation as JSON."),
 ) -> None:
     """Two-account authorization diff: same frame from two identities, diff the replies."""
     p = load_profile(profile)
     mgr_a = ConnectionManager(p, channel=channel, token=_read_token(token_a), identity=name_a)
     mgr_b = ConnectionManager(p, channel=channel, token=_read_token(token_b), identity=name_b)
     result = asyncio.run(authz.two_account_diff(mgr_a, mgr_b, json.loads(frame)))
+    if as_json:
+        payload = jsonout.diff_payload(result, profile=p.name, channel=mgr_a.channel.name)
+        typer.echo(jsonout.dumps(payload))
+        return
     typer.echo(f"reading: {result.reading}")
     typer.echo(f"  {name_a} reply: {json.dumps(result.reply_a)}")
     typer.echo(f"  {name_b} reply: {json.dumps(result.reply_b)}")
@@ -156,11 +169,17 @@ def sweep(
     values: str = typer.Option(..., help="Comma-separated values."),
     token_file: Optional[str] = None,
     channel: Optional[str] = None,
+    as_json: bool = typer.Option(False, "--json", help="Emit the sweep observations as JSON."),
 ) -> None:
     """Field sweep: drive one field over a list and show correlated replies."""
+    p = load_profile(profile)
     mgr = _manager(profile, channel, token_file, "sweep")
     vals: list = [_maybe_int(v) for v in values.split(",")]
     result = asyncio.run(authz.field_sweep(mgr, json.loads(frame), field, vals))
+    if as_json:
+        payload = jsonout.sweep_payload(result, profile=p.name, channel=mgr.channel.name)
+        typer.echo(jsonout.dumps(payload))
+        return
     typer.echo(f"field={result.field} distinct_replies={result.distinct_replies}")
     for row in result.rows:
         typer.echo(f"  {field}={row.value!r} -> {json.dumps(row.reply)}")
