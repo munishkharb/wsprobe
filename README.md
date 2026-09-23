@@ -142,6 +142,22 @@ uv run pytest -v
 The fixture is synthetic and self-contained. No engagement data, no live
 target, no target-specific logic in the tool.
 
+## Development
+
+Run `pre-commit install` once per clone. On every commit this then runs,
+against staged files:
+
+- **betterleaks**: secrets scan (redacted output), blocks the commit on a hit.
+- **opengrep**: SAST over Python, against a pinned rule pack vendored at
+  `.opengrep/rules` (no registry fetch at commit time), blocks the commit on
+  a finding.
+- the standard pre-commit-hooks set: end-of-file-fixer, trailing-whitespace,
+  check-merge-conflict, detect-private-key.
+
+Both scanners run as already-installed binaries (`brew install betterleaks`;
+opengrep via its install script) rather than something pre-commit builds for
+you. Run everything on demand with `pre-commit run --all-files`.
+
 ## Security of the tool itself
 
 Tokens are secrets: never written to a capture file, never printed, redacted
