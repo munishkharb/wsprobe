@@ -100,7 +100,9 @@ class _TokenSource:
 
             return _extract(Path(auth.token_file).read_text().strip(), auth.token_extract) if auth.token_extract else Path(auth.token_file).read_text().strip()
         if auth.login is LoginStep.command:
-            proc = await asyncio.create_subprocess_exec(
+            # List-form argv, no shell; auth.command comes from the loaded connection
+            # profile, not from untrusted network or user input.
+            proc = await asyncio.create_subprocess_exec(  # nosemgrep: opengrep.rules.python.lang.security.audit.dangerous-asyncio-create-exec-audit
                 *auth.command, stdout=subprocess.PIPE, stderr=subprocess.PIPE
             )
             out, err = await proc.communicate()
@@ -123,7 +125,9 @@ class _TokenSource:
         req.add_header("content-type", "application/json")
         for k, v in h.headers.items():
             req.add_header(k, v)
-        with urllib.request.urlopen(req, timeout=15) as resp:
+        # URL is built from the loaded connection profile's validated http.url, not from
+        # user input, so the file:// scheme risk urllib carries does not apply here.
+        with urllib.request.urlopen(req, timeout=15) as resp:  # nosemgrep: opengrep.rules.python.lang.security.audit.dynamic-urllib-use-detected
             body = resp.read().decode("utf-8", "replace")
         try:
             parsed = json.loads(body)
