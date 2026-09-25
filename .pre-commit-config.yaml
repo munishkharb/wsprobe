@@ -39,3 +39,6 @@ repos:
           - --quiet
           - --skip-unknown-extensions
           - --disable-version-check
+
+  - repo: local
+    hooks:
