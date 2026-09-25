@@ -135,7 +135,7 @@
       "type": "object"
     },
     "Correlation": {
-      "description": "How a reply is paired to its request.\n\necho: the server echoes the correlation key(s) back on the reply (the\ndefault, and the only mode a correlation-id-echoing server needs).\nordered: the socket answers in order, so the next non-heartbeat frame is\nthe reply. This is what most real servers actually do.\nack: the framing carries its own acknowledgement id (Socket.IO acks), so\nthe codec pairs request to reply below the message map.",
+      "description": "How a reply is paired to its request.\n\necho: the server echoes the correlation key(s) back on the reply (the\ndefault, and the only mode a correlation-id-echoing server needs).\nordered: the socket answers in order, so the next non-heartbeat frame is\nthe reply. This is what most real servers actually do. Caveat: on a channel\nthat also sends unsolicited server-initiated frames (broadcasts, fan-out,\nnotifications), an ordered reply can mispair with a push; prefer echo or ack\nwhere a correlation id exists, and keep to single-in-flight requests on a\npushy socket.\nack: the framing carries its own acknowledgement id (Socket.IO acks), so\nthe codec pairs request to reply below the message map.",
       "enum": [
         "echo",
         "ordered",
