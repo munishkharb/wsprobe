@@ -125,13 +125,18 @@ the target mints and places its token, then drive any wsprobe capability from
 it:
 
 ```
-# after filling in auth in the drafted profile.yaml
-wsprobe matrix    --profile profile.yaml     # handshake security matrix
-wsprobe repl      --profile profile.yaml     # interactive authenticated client
+# after filling in auth in the drafted profile.yaml (profile path is positional)
+wsprobe matrix profile.yaml        # handshake security matrix
+wsprobe repl   profile.yaml        # interactive authenticated client
+wsprobe diff   profile.yaml --frame '{...}' --token-a a.tok --token-b b.tok
 ```
 
-See the wsprobe README and `profile.schema.json` in the parent directory for the
-full profile contract and the capability list.
+The drafted profile declares `framing` (json, text, or socketio) and a
+`correlation` mode (echo, ordered, or ack); fill in `auth` (including a
+`cookie`/`subprotocol`/`login-frame` token location if the target uses one). An
+HTTP injection tool can reach a frame field through `wsprobe bridge`. See the
+wsprobe README and `profile.schema.json` in the parent directory for the full
+profile contract and the capability list.
 
 ## Authorized use only
 
