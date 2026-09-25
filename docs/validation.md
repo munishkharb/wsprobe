@@ -110,5 +110,31 @@ Upstream `interference-security/DVWS` (MIT), built from its Dockerfile; ws on
 classes (SQLi, command injection, XSS fan-out) are DVWS's core and are driven by
 an HTTP injection tool through `wsprobe bridge`, operator-run.
 
-Status: **pending.** Runbook in `runs/runbook.sh`. Ground truth and results to
-be filled once the bridge + sqlmap runs are recorded to `runs/`.
+Observed (`runs/dvws-probe.txt`): each route is a distinct Ratchet socket that
+upgrades with no token and replies with a plain string (text framing, one reply
+per message → ordered correlation). The route config sets `allowedOrigins '*'`.
+
+### Handshake layer (wsprobe direct)
+
+`uv run wsprobe matrix runs/dvws.yaml --channel authenticate-user --json` →
+`runs/dvws-matrix.json`
+
+| Expected | wsprobe observed | reading | Caught? |
+|----------|------------------|---------|---------|
+| Upgrade with no token accepted | `unauth-upgrade: upgraded-without-auth` | insecure-shape | ✅ |
+| No Origin check (`allowedOrigins '*'`) | `origin-*: upgraded-untrusted-origin` | insecure-shape | ✅ |
+
+### Injection layer (bridge + HTTP tool, operator-run)
+
+wsprobe carries the frame; an HTTP injection tool does the detection. DVWS
+replies are plain strings, so a blank/error string is the oracle.
+
+```
+# Terminal A
+uv run wsprobe bridge runs/dvws.yaml --channel authenticate-user --frame '"§FUZZ§"' --port 8081
+# Terminal B
+sqlmap -u 'http://127.0.0.1:8081/?fuzz=admin' --batch --level 3 -o runs/sqlmap-dvws.log
+```
+
+Status: handshake layer ✅ caught. Injection run **pending** operator execution;
+results to `runs/sqlmap-dvws.log`, then a row here.
