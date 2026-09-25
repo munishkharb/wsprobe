@@ -19,7 +19,7 @@ import urllib.request
 from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
 from typing import AsyncIterator, Awaitable, Callable, Optional
-from urllib.parse import urlencode, urlparse, urlunparse
+from urllib.parse import parse_qs, urlencode, urlparse, urlunparse
 
 import websockets
 
@@ -379,7 +379,12 @@ class ConnectionManager:
         hs = self.channel.handshake
         auth = self.channel.auth
         parsed = urlparse(hs.url)
-        query = dict(hs.query)
+        # Seed from any query string already in the handshake URL (e.g. a
+        # Socket.IO ?EIO=4&transport=websocket), so it is preserved rather than
+        # dropped when the URL is rebuilt, then layer the profile's query and
+        # any per-dial extras on top.
+        query = {k: v[-1] for k, v in parse_qs(parsed.query).items()}
+        query.update(hs.query)
         query.update(opts.extra_query)
         headers = dict(hs.headers)
         subprotocols: list[str] = [hs.subprotocol] if hs.subprotocol else []

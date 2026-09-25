@@ -9,3 +9,4 @@ dist/
 # runtime artifacts an operator may produce locally
 *.ndjson
 token.txt
+runs/

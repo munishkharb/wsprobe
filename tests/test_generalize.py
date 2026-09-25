@@ -233,3 +233,32 @@ def test_bridge_carries_http_body_into_a_frame_field():
     finally:
         httpd.shutdown()
         loop.call_soon_threadsafe(loop.stop)
+
+
+# --- handshake URL query preservation (regression) ---------------------------
+
+async def test_handshake_url_query_is_preserved():
+    """A query string embedded in the handshake URL (e.g. Socket.IO's
+    ?EIO=4&transport=websocket) must survive the URI rebuild. Regression for a
+    bug where _build_uri replaced the whole query and a Socket.IO upgrade 400ed."""
+    seen = {}
+
+    async def handler(ws):
+        seen["query"] = urlsplit(ws.request.path).query
+        async for raw in ws:
+            await ws.send(json.dumps({"type": "ok"}))
+
+    from urllib.parse import urlsplit
+
+    async with _serve(handler) as (host, port):
+        prof = Profile(name="t", channels=[Channel(
+            name="default",
+            handshake=Handshake(url=f"ws://{host}:{port}/socket?EIO=4&transport=websocket"),
+            messages=MessageMap(type_field="type", correlation=Correlation.ordered),
+        )])
+        mgr = ConnectionManager(prof, token="x")
+        async with mgr.dial() as conn:
+            await conn.request({"type": "ping"})
+        assert "EIO=4" in seen["query"]
+        assert "transport=websocket" in seen["query"]
+        assert "token=x" in seen["query"]  # the token still lands in the query
