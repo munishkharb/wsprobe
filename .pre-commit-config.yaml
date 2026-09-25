@@ -39,3 +39,11 @@ repos:
           - --quiet
           - --skip-unknown-extensions
           - --disable-version-check
+
+  - repo: local
+    hooks:
+      - id: commit-msg-hygiene
+        name: commit message carries no AI fingerprint
+        entry: scripts/check-commit-msg.sh
+        language: script
+        stages: [commit-msg]

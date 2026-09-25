@@ -1,0 +1,34 @@
+name: commit-hygiene
+
+on: pull_request
+
+permissions:
+  contents: read
+
+jobs:
+  scan:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          fetch-depth: 0
+      - name: Scan commit messages and PR metadata
+        env:
+          PR_TITLE: ${{ github.event.pull_request.title }}
+          PR_BODY: ${{ github.event.pull_request.body }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+          pattern='claude|anthropic|co-authored|generated with|ai-generated|aphorism|filler|manifesto|em-dash|clean-room|de-ai|ai-tell|slop|cringe|bullshit'
+          msgs="$(git log --format='%B' "${BASE_SHA}..${HEAD_SHA}")"
+          blob="$(printf '%s\n%s\n%s' "$msgs" "${PR_TITLE:-}" "${PR_BODY:-}")"
+          if printf '%s' "$blob" | grep -Eiq "$pattern"; then
+            echo "::error::A commit message, the PR title, or the PR body reveals AI assistance or AI-writing cleanup. Reword it in plain engineering terms."
+            exit 1
+          fi
+          if printf '%s' "$msgs" | grep -q '—'; then
+            echo "::error::A commit message contains an em-dash. Use plain punctuation."
+            exit 1
+          fi
+          echo "commit hygiene: clean"
