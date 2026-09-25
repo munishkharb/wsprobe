@@ -166,6 +166,20 @@ at `docs/sample.sarif.json`.
 wsprobe matrix profile.yaml --token-file valid.tok --sarif out.sarif.json
 ```
 
+## Burp companion
+
+For operators who work in Burp, `burp/` ships a Montoya extension and two
+Bambdas that sit alongside the CLI:
+
+- The extension drafts a wsprobe profile from live WebSocket traffic, and can run
+  wsprobe against a target by shelling out to the CLI with `--json` and showing
+  the observations in a Burp tab, so no testing logic is reimplemented in Kotlin.
+- `HideHeartbeatFrames` filters keepalive noise out of the WebSocket history.
+- `FreshTokenFromHandshake` copies a fresh token from the handshake for reuse.
+
+One login can serve both Burp and the CLI. Build the extension with the bundled
+Gradle wrapper (`./gradlew build`); details are in [`burp/README.md`](burp/README.md).
+
 ## The practice lab
 
 `lab/docker-compose.yml` stands up the shipped vulnerable fixture and the clean
