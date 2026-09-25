@@ -1,0 +1,30 @@
+# wsprobe practice lab. Stands up the targets wsprobe is pointed at — never
+# wsprobe itself. Authorized, local use only.
+#
+#   docker compose -f lab/docker-compose.yml up -d
+#
+# Targets:
+#   fixture  ws://127.0.0.1:8799/socket   the shipped vulnerable synthetic server
+#   control  ws://127.0.0.1:8798/socket   the shipped clean control (zero findings)
+#   juice    http://127.0.0.1:3000        OWASP Juice Shop (Socket.IO at /socket.io/)
+#
+# OWASP DVWS is a separate MIT project, not vendored here. Build it from its own
+# repo (github.com/interference-security/DVWS) when you want the DVWS rows.
+services:
+  fixture:
+    build:
+      context: ..
+      dockerfile: lab/Dockerfile
+    command: python -m targets.fixture --host 0.0.0.0 --port 8799
+    ports: ["8799:8799"]
+
+  control:
+    build:
+      context: ..
+      dockerfile: lab/Dockerfile
+    command: python -m targets.control --host 0.0.0.0 --port 8798
+    ports: ["8798:8798"]
+
+  juice:
+    image: bkimminich/juice-shop:latest
+    ports: ["3000:3000"]

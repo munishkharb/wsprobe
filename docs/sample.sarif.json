@@ -1,0 +1,319 @@
+{
+  "$schema": "https://json.schemastore.org/sarif-2.1.0.json",
+  "version": "2.1.0",
+  "runs": [
+    {
+      "tool": {
+        "driver": {
+          "name": "wsprobe",
+          "version": "0.1.0",
+          "informationUri": "https://github.com/munishkharb/wsprobe",
+          "rules": [
+            {
+              "id": "wsprobe/unauth-upgrade",
+              "name": "unauth-upgrade",
+              "shortDescription": {
+                "text": "The WebSocket upgrade completed with no credentials."
+              },
+              "helpUri": "https://github.com/munishkharb/wsprobe",
+              "defaultConfiguration": {
+                "level": "warning"
+              }
+            },
+            {
+              "id": "wsprobe/origin-stripped",
+              "name": "origin-stripped",
+              "shortDescription": {
+                "text": "The WebSocket upgrade completed with no Origin header."
+              },
+              "helpUri": "https://github.com/munishkharb/wsprobe",
+              "defaultConfiguration": {
+                "level": "warning"
+              }
+            },
+            {
+              "id": "wsprobe/origin-null",
+              "name": "origin-null",
+              "shortDescription": {
+                "text": "The WebSocket upgrade completed with Origin: null."
+              },
+              "helpUri": "https://github.com/munishkharb/wsprobe",
+              "defaultConfiguration": {
+                "level": "warning"
+              }
+            },
+            {
+              "id": "wsprobe/origin-sibling",
+              "name": "origin-sibling",
+              "shortDescription": {
+                "text": "The WebSocket upgrade completed with a sibling-subdomain Origin."
+              },
+              "helpUri": "https://github.com/munishkharb/wsprobe",
+              "defaultConfiguration": {
+                "level": "warning"
+              }
+            },
+            {
+              "id": "wsprobe/origin-bypass",
+              "name": "origin-bypass",
+              "shortDescription": {
+                "text": "The WebSocket upgrade completed with an allowlist-bypass Origin."
+              },
+              "helpUri": "https://github.com/munishkharb/wsprobe",
+              "defaultConfiguration": {
+                "level": "warning"
+              }
+            },
+            {
+              "id": "wsprobe/no-auth-control-frame",
+              "name": "no-auth-control-frame",
+              "shortDescription": {
+                "text": "An unauthenticated socket had a control frame acted on."
+              },
+              "helpUri": "https://github.com/munishkharb/wsprobe",
+              "defaultConfiguration": {
+                "level": "warning"
+              }
+            },
+            {
+              "id": "wsprobe/cross-user-handshake",
+              "name": "cross-user-handshake",
+              "shortDescription": {
+                "text": "The connection bound to a URL-supplied identity instead of the token's."
+              },
+              "helpUri": "https://github.com/munishkharb/wsprobe",
+              "defaultConfiguration": {
+                "level": "warning"
+              }
+            }
+          ]
+        }
+      },
+      "results": [
+        {
+          "ruleId": "wsprobe/unauth-upgrade",
+          "level": "warning",
+          "message": {
+            "text": "Observed upgraded-without-auth. A lead to reproduce by hand, not a verdict."
+          },
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "ws://127.0.0.1:8799/socket"
+                }
+              }
+            }
+          ],
+          "properties": {
+            "observed": "upgraded-without-auth",
+            "reading": "insecure-shape",
+            "detail": {
+              "upgraded": true,
+              "error": null
+            }
+          }
+        },
+        {
+          "ruleId": "wsprobe/origin-stripped",
+          "level": "warning",
+          "message": {
+            "text": "Observed upgraded-untrusted-origin. A lead to reproduce by hand, not a verdict."
+          },
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "ws://127.0.0.1:8799/socket"
+                }
+              }
+            }
+          ],
+          "properties": {
+            "observed": "upgraded-untrusted-origin",
+            "reading": "insecure-shape",
+            "detail": {
+              "origin": null,
+              "upgraded": true
+            }
+          }
+        },
+        {
+          "ruleId": "wsprobe/origin-null",
+          "level": "warning",
+          "message": {
+            "text": "Observed upgraded-untrusted-origin. A lead to reproduce by hand, not a verdict."
+          },
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "ws://127.0.0.1:8799/socket"
+                }
+              }
+            }
+          ],
+          "properties": {
+            "observed": "upgraded-untrusted-origin",
+            "reading": "insecure-shape",
+            "detail": {
+              "origin": "null",
+              "upgraded": true
+            }
+          }
+        },
+        {
+          "ruleId": "wsprobe/origin-sibling",
+          "level": "warning",
+          "message": {
+            "text": "Observed upgraded-untrusted-origin. A lead to reproduce by hand, not a verdict."
+          },
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "ws://127.0.0.1:8799/socket"
+                }
+              }
+            }
+          ],
+          "properties": {
+            "observed": "upgraded-untrusted-origin",
+            "reading": "insecure-shape",
+            "detail": {
+              "origin": "https://evil.127.0.0.1",
+              "upgraded": true
+            }
+          }
+        },
+        {
+          "ruleId": "wsprobe/origin-bypass",
+          "level": "warning",
+          "message": {
+            "text": "Observed upgraded-untrusted-origin. A lead to reproduce by hand, not a verdict."
+          },
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "ws://127.0.0.1:8799/socket"
+                }
+              }
+            }
+          ],
+          "properties": {
+            "observed": "upgraded-untrusted-origin",
+            "reading": "insecure-shape",
+            "detail": {
+              "origin": "https://127.0.0.1.attacker.test",
+              "upgraded": true
+            }
+          }
+        },
+        {
+          "ruleId": "wsprobe/origin-bypass",
+          "level": "warning",
+          "message": {
+            "text": "Observed upgraded-untrusted-origin. A lead to reproduce by hand, not a verdict."
+          },
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "ws://127.0.0.1:8799/socket"
+                }
+              }
+            }
+          ],
+          "properties": {
+            "observed": "upgraded-untrusted-origin",
+            "reading": "insecure-shape",
+            "detail": {
+              "origin": "https://attacker-127.0.0.1",
+              "upgraded": true
+            }
+          }
+        },
+        {
+          "ruleId": "wsprobe/origin-bypass",
+          "level": "warning",
+          "message": {
+            "text": "Observed upgraded-untrusted-origin. A lead to reproduce by hand, not a verdict."
+          },
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "ws://127.0.0.1:8799/socket"
+                }
+              }
+            }
+          ],
+          "properties": {
+            "observed": "upgraded-untrusted-origin",
+            "reading": "insecure-shape",
+            "detail": {
+              "origin": "https://127.0.0.1evil.test",
+              "upgraded": true
+            }
+          }
+        },
+        {
+          "ruleId": "wsprobe/no-auth-control-frame",
+          "level": "warning",
+          "message": {
+            "text": "Observed acted-on-unauthenticated. A lead to reproduce by hand, not a verdict."
+          },
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "ws://127.0.0.1:8799/socket"
+                }
+              }
+            }
+          ],
+          "properties": {
+            "observed": "acted-on-unauthenticated",
+            "reading": "insecure-shape",
+            "detail": {
+              "reply": {
+                "type": "subscribed",
+                "topic": "admin",
+                "cid": 1
+              }
+            }
+          }
+        },
+        {
+          "ruleId": "wsprobe/cross-user-handshake",
+          "level": "warning",
+          "message": {
+            "text": "Observed bound-url-identity. A lead to reproduce by hand, not a verdict."
+          },
+          "locations": [
+            {
+              "physicalLocation": {
+                "artifactLocation": {
+                  "uri": "ws://127.0.0.1:8799/socket"
+                }
+              }
+            }
+          ],
+          "properties": {
+            "observed": "bound-url-identity",
+            "reading": "insecure-shape",
+            "detail": {
+              "token_identity": "alice",
+              "url_identity": "bob",
+              "server_bound": "bob"
+            }
+          }
+        }
+      ],
+      "properties": {
+        "profile": "demo-target"
+      }
+    }
+  ]
+}

@@ -1,0 +1,41 @@
+# Pre-commit hooks for wsprobe. Install with `pre-commit install`, run on
+# demand with `pre-commit run --all-files`.
+#
+# Requires two binaries already on PATH (both use pre-commit's `system`
+# language, so pre-commit installs nothing for them):
+#   - betterleaks (brew install betterleaks)
+#   - opengrep    (see https://github.com/opengrep/opengrep/blob/main/install.sh)
+#
+# Opengrep is pointed at a vendored, pinned rule pack under .opengrep/rules
+# (copied from opengrep/opengrep-rules @ f1d2b562b414783763fd02a6ed2736eaed622efa)
+# rather than a registry shorthand, so the hook never fetches rules over the
+# network at commit time.
+exclude: '^\.opengrep/'
+repos:
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v6.0.0
+    hooks:
+      - id: end-of-file-fixer
+      - id: trailing-whitespace
+      - id: check-merge-conflict
+      - id: detect-private-key
+
+  - repo: https://github.com/betterleaks/betterleaks
+    rev: v1.8.1
+    hooks:
+      - id: betterleaks-system
+        name: betterleaks (secrets scan, staged files)
+
+  - repo: https://github.com/opengrep/opengrep
+    rev: v1.30.0
+    hooks:
+      - id: semgrep
+        name: opengrep (SAST, pinned Python security rules)
+        types: [python]
+        args:
+          - --config
+          - .opengrep/rules
+          - --error
+          - --quiet
+          - --skip-unknown-extensions
+          - --disable-version-check
