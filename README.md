@@ -18,7 +18,7 @@ flowchart LR
   conn --> replay["Replay"]
   conn --> bridge["HTTP-to-WS bridge"]
   bridge --> ext["sqlmap / ffuf"]
-  hs --> v{{"Deterministic verdict:<br/>close code or reply diff,<br/>never a model's guess"}}
+  hs --> v{{"Deterministic verdict:<br/>close code or reply diff"}}
   diff --> v
   sweep --> v
   replay --> v
@@ -30,7 +30,7 @@ flowchart LR
 The demo above runs against the shipped synthetic fixture; reproduce it with
 `bash scripts/demo.sh`.
 
-The bet is depth over breadth. A WebSocket connection begins as an ordinary
+wsprobe goes deep on one protocol. A WebSocket connection begins as an ordinary
 HTTP GET and, at `101 Switching Protocols`, stops being HTTP and becomes a raw
 two-way socket for the life of the app. The one checkpoint HTTP walks on every
 request is walked exactly once here, at the upgrade, so the interesting defects
@@ -83,17 +83,17 @@ holds it, `ttl` caches until an age limit.
 One profile adapts the generic engine to a specific target:
 
 - **Framing** (`handshake.framing`): `json`, `text` (raw strings), or `socketio`
-  (Socket.IO/Engine.IO v4 — the connect handshake and ping/pong are handled for
-  you). Length-prefixed and binary are stubs for a later phase.
+  (Socket.IO/Engine.IO v4, where the connect handshake and ping/pong are handled
+  for you). Length-prefixed and binary are stubs for a later phase.
 - **Correlation** (`messages.correlation`): `echo` (the server echoes a
-  correlation id), `ordered` (the next reply is the answer — most real servers),
-  or `ack` (Socket.IO acknowledgements).
+  correlation id), `ordered` (the next reply is the answer, which fits most real
+  servers), or `ack` (Socket.IO acknowledgements).
 - **Token location** (`auth.token_location`): `query`, `header`, `subprotocol`,
   `cookie`, or `login-frame` (with an optional `login_frame` template carrying a
   `§token§` placeholder).
-- **Probes** (`probes`): the target-specific frames the matrix needs — the
+- **Probes** (`probes`): the target-specific frames the matrix needs (the
   unauthenticated control frame, the identity probe, and the URL identity
-  parameter — so nothing target-shaped is baked into the engine.
+  parameter), so nothing target-shaped is baked into the engine.
 
 ## Capabilities
 
@@ -124,7 +124,7 @@ The observation verbs default to a human table. Pass `--json` to `matrix`,
 Burp companion panel can parse instead. Each payload carries a `schema` tag of
 the form `wsprobe.<command>/v1` and a `command` field, so a reader dispatches on
 `schema` and trusts the keys under it. The reading vocabulary is the same one the
-tables use, and the word "confirmed" never appears there either. The single
+tables use. The single
 source of the shapes is `src/wsprobe/jsonout.py`.
 
 ```
@@ -167,7 +167,7 @@ control, plus OWASP Juice Shop, so every capability has something to run against
 locally. OWASP DVWS is a separate MIT project you build from its own repo. Full
 run-throughs with commands and output live in [`docs/validation.md`](docs/validation.md).
 
-## The Python API is the real surface
+## Python API
 
 Every capability runs from a first-class Python API; the CLI verbs are thin
 wrappers over it. The core objects are the profile loader and an async
@@ -187,9 +187,8 @@ async def main():
 asyncio.run(main())
 ```
 
-## Proof: the synthetic vulnerable fixture
+## The synthetic vulnerable fixture
 
-A security tool that cannot be demonstrated end to end is a claim, not a tool.
 The repo ships a small synthetic vulnerable WebSocket server (`tests/fixture.py`)
 that seeds one clear bug per class: identity bound only at the handshake and not
 re-checked per frame, an upgrade accepted with no token, no Origin validation, a
