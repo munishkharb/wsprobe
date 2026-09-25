@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: MIT
 // wsprobe Burp companion - part of the wsprobe toolkit, MIT licensed.
-// Clean-room, no target and no default host. Ships nothing to point at.
+// No target and no default host. Ships nothing to point at.
 
 package wsprobe.burp
 

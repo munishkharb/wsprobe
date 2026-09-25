@@ -36,7 +36,7 @@ command and the output file under `runs/`.
 > **Reproducing the evidence.** The `runs/` directory is gitignored (it holds
 > local run artifacts with machine-specific paths), so the `Evidence` cells below
 > name files you *regenerate locally*, not files shipped in the repo. Bring the
-> lab up and replay them with `runs/runbook.sh` (fixture-only rows need no lab —
+> lab up and replay them with `runs/runbook.sh` (fixture-only rows need no lab:
 > `bash scripts/demo.sh` reproduces those). The GATE (the test suite) is the part
 > that ships and runs in CI; the `runs/` captures are how a reviewer re-derives
 > the live-target rows on their own machine.
@@ -135,7 +135,7 @@ Observed handshake (`runs/juice-handshake.txt`, `runs/juice-connect.txt`):
 Ground truth: Juice Shop's Socket.IO endpoint is an **unauthenticated
 notification channel** with permissive CORS. So the expected true observations
 are an unauthenticated upgrade and no Origin restriction. These are low-severity
-on a public notification channel — a real demonstration that wsprobe reports the
+on a public notification channel. This shows wsprobe reports the
 *shape* and leaves severity to the operator, not a high-impact bug.
 
 Command: `uv run wsprobe matrix runs/juice.yaml --json` → `runs/juice-matrix.json`
@@ -151,7 +151,7 @@ False positives: none. The insecure shapes reported are true of the channel;
 their low severity is the operator's call.
 
 **Bug this run caught in wsprobe itself:** the first matrix run reported
-`unauth-upgrade: rejected (http-400)` — wrong, since the socket connects fine
+`unauth-upgrade: rejected (http-400)`, which is wrong, since the socket connects fine
 without auth. Cause: `_build_uri` discarded a query string embedded in the
 handshake URL (`?EIO=4&transport=websocket`). Fixed to merge the URL's own
 query; regression test `test_handshake_url_query_is_preserved`.
@@ -183,7 +183,7 @@ per message → ordered correlation). The route config sets `allowedOrigins '*'`
 
 wsprobe carries the frame; sqlmap does the detection. The real frame format
 comes from the app's own client (`error-sql-injection.php`), which sends
-`{"auth_user":"<base64>","auth_pass":"<base64>"}` — the fields are Base64-encoded
+`{"auth_user":"<base64>","auth_pass":"<base64>"}`, where the fields are Base64-encoded
 before sending. This is the intended workflow: the profile/frame is drawn from
 observed client traffic, not guessed. sqlmap's `base64encode` tamper matches it.
 
