@@ -60,6 +60,23 @@ connection, so re-authenticating mid-run revokes the token a live socket is
 holding. `per-dial` mints one token per new dial, `reuse` harvests one and
 holds it, `ttl` caches until an age limit.
 
+### Speaking a target's dialect
+
+One profile adapts the generic engine to a specific target:
+
+- **Framing** (`handshake.framing`): `json`, `text` (raw strings), or `socketio`
+  (Socket.IO/Engine.IO v4 — the connect handshake and ping/pong are handled for
+  you). Length-prefixed and binary are stubs for a later phase.
+- **Correlation** (`messages.correlation`): `echo` (the server echoes a
+  correlation id), `ordered` (the next reply is the answer — most real servers),
+  or `ack` (Socket.IO acknowledgements).
+- **Token location** (`auth.token_location`): `query`, `header`, `subprotocol`,
+  `cookie`, or `login-frame` (with an optional `login_frame` template carrying a
+  `§token§` placeholder).
+- **Probes** (`probes`): the target-specific frames the matrix needs — the
+  unauthenticated control frame, the identity probe, and the URL identity
+  parameter — so nothing target-shaped is baked into the engine.
+
 ## Capabilities
 
 | Verb | What it does |
@@ -113,6 +130,24 @@ wsprobe matrix profile.yaml --token-file valid.tok --json
 `sweep` emits `field`, `distinct_replies`, and `rows`; `analyze` emits the frame
 `inventory` and `correlations`. See `src/wsprobe/jsonout.py` for the full field
 list of each.
+
+### SARIF
+
+`matrix` and `diff` also take `--sarif <path>` to write the insecure-shape leads
+as SARIF 2.1.0, so a run drops into any code-scanning viewer. Results are
+`level: warning` and phrased as leads to reproduce, never verdicts; a sample is
+at `docs/sample.sarif.json`.
+
+```
+wsprobe matrix profile.yaml --token-file valid.tok --sarif out.sarif.json
+```
+
+## The practice lab
+
+`lab/docker-compose.yml` stands up the shipped vulnerable fixture and the clean
+control, plus OWASP Juice Shop, so every capability has something to run against
+locally. OWASP DVWS is a separate MIT project you build from its own repo. Full
+run-throughs with commands and output live in [`docs/validation.md`](docs/validation.md).
 
 ## The Python API is the real surface
 
