@@ -7,6 +7,24 @@ covers one protocol surface end to end for a single review: understand a
 capture and draft the target profile, test the handshake, test authorization
 across identities, sweep frame fields, replay state-changing frames.
 
+```mermaid
+flowchart LR
+  cap["WebSocket capture"] --> an["Analyzer<br/>drafts a profile"]
+  an --> prof["Profile:<br/>handshake, auth,<br/>message map"]
+  prof --> conn["Authenticated<br/>socket"]
+  conn --> hs["Handshake matrix"]
+  conn --> diff["Two-account diff"]
+  conn --> sweep["Field sweep"]
+  conn --> replay["Replay"]
+  conn --> bridge["HTTP-to-WS bridge"]
+  bridge --> ext["sqlmap / ffuf"]
+  hs --> v{{"Deterministic verdict:<br/>close code or reply diff,<br/>never a model's guess"}}
+  diff --> v
+  sweep --> v
+  replay --> v
+  ext --> v
+```
+
 ![wsprobe demo](docs/media/demo.gif)
 
 The demo above runs against the shipped synthetic fixture; reproduce it with
