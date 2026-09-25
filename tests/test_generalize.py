@@ -168,3 +168,68 @@ async def test_login_frame_template_substitutes_token():
         async with mgr.dial() as conn:
             await conn.request({"type": "ping"})
         assert seen["login"] == {"type": "auth", "params": {"jwt": "the-jwt"}}
+
+
+# --- HTTP-to-WebSocket bridge ------------------------------------------------
+
+def test_substitute_fuzz_reaches_nested_fields():
+    from wsprobe.bridge import FUZZ, substitute_fuzz
+
+    tmpl = {"type": "search", "q": FUZZ, "meta": {"raw": FUZZ}, "tags": [FUZZ]}
+    out = substitute_fuzz(tmpl, "x' OR 1=1--")
+    assert out == {
+        "type": "search",
+        "q": "x' OR 1=1--",
+        "meta": {"raw": "x' OR 1=1--"},
+        "tags": ["x' OR 1=1--"],
+    }
+
+
+def test_bridge_carries_http_body_into_a_frame_field():
+    """An HTTP POST body is substituted into a §FUZZ§ frame field, sent on a
+    real authenticated socket, and the reply comes back as the HTTP body. The
+    listener is bound to loopback only."""
+    import http.client
+    import threading as _threading
+
+    from websockets.asyncio.server import serve as _serve
+
+    from wsprobe import serve_bridge
+    from wsprobe.bridge import FUZZ
+
+    # A background asyncio loop hosting a tiny echo WebSocket server.
+    holder: dict = {}
+    loop = asyncio.new_event_loop()
+
+    async def _start():
+        async def handler(ws):
+            async for raw in ws:
+                frame = json.loads(raw)
+                await ws.send(json.dumps({"type": "result", "saw": frame.get("q")}))
+
+        srv = await _serve(handler, "127.0.0.1", 0)
+        holder["port"] = list(srv.sockets)[0].getsockname()[1]
+
+    loop.run_until_complete(_start())
+    ws_thread = _threading.Thread(target=loop.run_forever, daemon=True)
+    ws_thread.start()
+
+    prof = _profile("127.0.0.1", holder["port"], correlation=Correlation.ordered)
+    mgr = ConnectionManager(prof, token="x")
+    httpd = serve_bridge(mgr, {"type": "search", "q": FUZZ}, port=0)
+    assert httpd.server_address[0] == "127.0.0.1"  # loopback only
+    bridge_port = httpd.server_address[1]
+    http_thread = _threading.Thread(target=httpd.serve_forever, daemon=True)
+    http_thread.start()
+
+    try:
+        conn = http.client.HTTPConnection("127.0.0.1", bridge_port, timeout=5)
+        conn.request("POST", "/", body="admin' OR '1'='1")
+        resp = conn.getresponse()
+        assert resp.status == 200
+        payload = json.loads(resp.read())
+        # The HTTP body reached the frame's q field and the reply came back.
+        assert payload["saw"] == "admin' OR '1'='1"
+    finally:
+        httpd.shutdown()
+        loop.call_soon_threadsafe(loop.stop)

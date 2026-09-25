@@ -209,6 +209,28 @@ def replay(
         typer.echo(f"  sent {json.dumps(step.sent)} -> {json.dumps(step.reply)}")
 
 
+@app.command()
+def bridge(
+    profile: str,
+    frame: str = typer.Option(..., help="Frame template as JSON, with a §FUZZ§ placeholder for the injected value."),
+    token_file: Optional[str] = None,
+    channel: Optional[str] = None,
+    port: int = typer.Option(8081, help="Loopback port to listen on."),
+    timeout: float = typer.Option(5.0, help="Per-frame reply timeout in seconds."),
+) -> None:
+    """Run a loopback HTTP-to-WebSocket bridge so an HTTP tool can drive one
+    frame field. Binds 127.0.0.1 only; paces one frame at a time."""
+    from .bridge import serve_bridge
+
+    mgr = _manager(profile, channel, token_file, "bridge")
+    httpd = serve_bridge(mgr, json.loads(frame), port=port, timeout=timeout)
+    typer.echo(f"wsprobe bridge on http://127.0.0.1:{port} -> frame field via §FUZZ§ (Ctrl-C to stop)")
+    try:
+        httpd.serve_forever()
+    except KeyboardInterrupt:
+        httpd.shutdown()
+
+
 def _maybe_int(value: str):
     try:
         return int(value)

@@ -65,6 +65,7 @@ holds it, `ttl` caches until an age limit.
 | `wsprobe diff` | Two-account authorization diff: the same frame from two identities, replies compared. |
 | `wsprobe sweep` | Field sweep: one field over a list of values on one identity, correlated replies. |
 | `wsprobe replay` | Re-drive a captured outbound sequence on a fresh authenticated socket, optional field mutation. |
+| `wsprobe bridge` | Loopback HTTP-to-WebSocket bridge: an HTTP tool (injection tester, fuzzer) drives one frame field via a `§FUZZ§` placeholder while wsprobe owns the handshake and token refresh. Binds `127.0.0.1` only. |
 
 ## Observations, not verdicts
 
@@ -163,8 +164,9 @@ you. Run everything on demand with `pre-commit run --all-files`.
 Tokens are secrets: never written to a capture file, never printed, redacted
 from any frame the analyzer persists. The sweep and replay engines pace
 requests rather than bursting. TLS verification is on by default, with an
-explicit flag to disable it for a proxied lab. The tool opens no listening
-socket.
+explicit flag to disable it for a proxied lab. The only verb that opens a
+listening socket is `wsprobe bridge`, and it binds `127.0.0.1` only and paces
+one frame at a time; every other verb opens outbound sockets only.
 
 ## License
 

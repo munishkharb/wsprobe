@@ -8,6 +8,7 @@ capability is a thin front end over that shared core.
 from __future__ import annotations
 
 from .analyzer import Analysis, analyze, draft_profile, emit_draft_profile
+from .bridge import FUZZ, serve_bridge, substitute_fuzz
 from .authz import DiffResult, SweepResult, field_sweep, two_account_diff
 from .connection import Connection, ConnectionManager, DialOptions
 from .jsonout import analyze_payload, diff_payload, matrix_payload, sweep_payload
@@ -23,6 +24,9 @@ __all__ = [
     "analyze",
     "draft_profile",
     "emit_draft_profile",
+    "FUZZ",
+    "serve_bridge",
+    "substitute_fuzz",
     "DiffResult",
     "SweepResult",
     "field_sweep",
