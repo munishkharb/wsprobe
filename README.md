@@ -1,9 +1,16 @@
 # wsprobe
 
+[![CI](https://github.com/munishkharb/wsprobe/actions/workflows/ci.yml/badge.svg)](https://github.com/munishkharb/wsprobe/actions/workflows/ci.yml)
+
 A WebSocket security review toolkit. It opens its own authenticated socket and
 covers one protocol surface end to end for a single review: understand a
 capture and draft the target profile, test the handshake, test authorization
 across identities, sweep frame fields, replay state-changing frames.
+
+![wsprobe demo](docs/media/demo.gif)
+
+The demo above runs against the shipped synthetic fixture; reproduce it with
+`bash scripts/demo.sh`.
 
 The bet is depth over breadth. A WebSocket connection begins as an ordinary
 HTTP GET and, at `101 Switching Protocols`, stops being HTTP and becomes a raw
