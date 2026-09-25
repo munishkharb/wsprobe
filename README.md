@@ -25,10 +25,16 @@ flowchart LR
   ext --> v
 ```
 
-![wsprobe demo](docs/media/demo.gif)
+![wsprobe against OWASP DVWS](docs/media/wsprobe-demo.gif)
 
-The demo above runs against the shipped synthetic fixture; reproduce it with
-`bash scripts/demo.sh`.
+Live SQL injection carried through a WebSocket frame against OWASP DVWS: sqlmap
+drives the frame field through the bridge while wsprobe owns the handshake and
+token refresh. DVWS is a separate MIT project you build from its own repo.
+
+![wsprobe against the synthetic fixture](docs/media/demo.gif)
+
+This second run is against the shipped synthetic fixture, and reproduces from a
+clean clone with `bash scripts/demo.sh`.
 
 wsprobe goes deep on one protocol. A WebSocket connection begins as an ordinary
 HTTP GET and, at `101 Switching Protocols`, stops being HTTP and becomes a raw
