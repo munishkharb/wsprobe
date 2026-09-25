@@ -44,6 +44,28 @@ Ground truth (seeded bugs) and result:
 Control present the fixture keeps: expired and foreign tokens are rejected at the
 upgrade → matrix reads `control-present` (no false alarm).
 
+### Injection through the bridge (live sqlmap run)
+
+The fixture's `login` frame is a deliberate SQL-injection sink (username
+concatenated into a SQLite query). This proves the bridge's purpose end to end:
+an HTTP-only tool with no WebSocket awareness reaches a frame field.
+
+```
+uv run python -m tests.fixture --port 8799 &
+uv run wsprobe bridge runs/fixture-sqli.yaml \
+  --frame '{"type":"login","username":"§FUZZ§","password":"nope"}' --port 8082 &
+sqlmap -u 'http://127.0.0.1:8082/?fuzz=alice' --batch --dbms sqlite --technique=BE
+```
+
+| Expected | Result | Evidence |
+|----------|--------|----------|
+| sqlmap detects SQLi in the frame field | ✅ boolean-based + error-based, `fuzz is vulnerable` | `runs/sqlmap-fixture.log` |
+| sqlmap extracts data through the socket | ✅ dumped `users` (username, password, secret) | `runs/sqlmap-fixture-dump.log` |
+| Regression guard | ✅ tautology flips the oracle through the bridge | `test_bridge_delivers_injection_to_a_sql_sink` |
+
+This is the same path an operator points at DVWS: wsprobe owns the handshake and
+framing, the HTTP tool does the injection.
+
 ---
 
 ## T-CTL — clean control (zero findings expected)

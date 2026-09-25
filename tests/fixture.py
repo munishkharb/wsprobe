@@ -107,6 +107,18 @@ class Fixture:
     def __init__(self) -> None:
         self.balances: dict[str, int] = {}
         self.connections: set[ServerConnection] = set()
+        # A deliberately injectable SQL backend for the "login" frame. This
+        # seeds the injection class (catalog #9) so an HTTP injection tool can
+        # be driven through `wsprobe bridge` at a frame field end to end.
+        import sqlite3
+
+        self._db = sqlite3.connect(":memory:", check_same_thread=False)
+        self._db.execute("CREATE TABLE users (username TEXT, password TEXT, secret TEXT)")
+        self._db.executemany(
+            "INSERT INTO users VALUES (?, ?, ?)",
+            [("alice", "wonderland", "flag-alice"), ("bob", "builder", "flag-bob")],
+        )
+        self._db.commit()
 
     def process_request(self, connection: ServerConnection, request):
         identity, reason = _resolve_identity(request.path, request.headers)
@@ -167,6 +179,30 @@ class Fixture:
         if mtype == "subscribe":
             # BUG: no message-level authorization; anon can subscribe to admin.
             await reply({"type": "subscribed", "topic": frame.get("topic")})
+            return
+
+        if mtype == "login":
+            # BUG: the username is concatenated straight into the SQL, so a
+            # frame field is a first-class SQL injection sink. The reply is a
+            # boolean oracle (welcome vs denied), so a boolean-based injection
+            # through the bridge flips it.
+            username = frame.get("username", "")
+            password = frame.get("password", "")
+            query = (
+                "SELECT username FROM users WHERE username = '"
+                + str(username)
+                + "' AND password = '"
+                + str(password)
+                + "'"
+            )
+            try:
+                row = self._db.execute(query).fetchone()  # nosemgrep: injectable-by-design test fixture
+                if row:
+                    await reply({"type": "login.ok", "user": row[0]})
+                else:
+                    await reply({"type": "login.denied"})
+            except Exception as exc:
+                await reply({"type": "login.error", "error": str(exc)})
             return
 
         if mtype == "claim":

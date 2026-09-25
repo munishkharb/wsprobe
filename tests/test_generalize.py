@@ -262,3 +262,58 @@ async def test_handshake_url_query_is_preserved():
         assert "EIO=4" in seen["query"]
         assert "transport=websocket" in seen["query"]
         assert "token=x" in seen["query"]  # the token still lands in the query
+
+
+# --- bridge carries an injection payload to a SQL sink (regression) ----------
+
+def test_bridge_delivers_injection_to_a_sql_sink():
+    """End-to-end proof of the bridge's purpose: an HTTP request through the
+    bridge reaches the fixture's injectable login frame, and a SQL tautology in
+    the injected field flips the boolean oracle (denied -> ok). This is the
+    integration an HTTP injection tool relies on."""
+    import http.client
+    import threading as _threading
+    from urllib.parse import quote
+
+    from wsprobe import serve_bridge
+    from wsprobe.bridge import FUZZ
+
+    from .fixture import run_fixture
+
+    holder: dict = {}
+    loop = asyncio.new_event_loop()
+
+    async def _start():
+        import contextlib
+
+        cm = run_fixture()
+        holder["cm"] = cm
+        host, port = await cm.__aenter__()
+        holder["addr"] = (host, port)
+
+    loop.run_until_complete(_start())
+    _threading.Thread(target=loop.run_forever, daemon=True).start()
+
+    host, port = holder["addr"]
+    prof = Profile(name="sqli", channels=[Channel(
+        name="default",
+        handshake=Handshake(url=f"ws://{host}:{port}/socket"),
+        messages=MessageMap(type_field="type", correlation_keys=["cid"]),
+    )])
+    mgr = ConnectionManager(prof)  # anon upgrade, like the real bridge run
+    httpd = serve_bridge(mgr, {"type": "login", "username": FUZZ, "password": "nope"}, port=0)
+    bp = httpd.server_address[1]
+    _threading.Thread(target=httpd.serve_forever, daemon=True).start()
+
+    def _get(fuzz: str) -> dict:
+        c = http.client.HTTPConnection("127.0.0.1", bp, timeout=5)
+        c.request("GET", f"/?fuzz={quote(fuzz)}")
+        return json.loads(c.getresponse().read())
+
+    try:
+        assert _get("nobody")["type"] == "login.denied"      # honest failure
+        injected = _get("x' OR '1'='1' -- ")                 # tautology through the bridge
+        assert injected["type"] == "login.ok"                # the sink was reached and flipped
+    finally:
+        httpd.shutdown()
+        loop.call_soon_threadsafe(loop.stop)
