@@ -34,6 +34,20 @@
           "$ref": "#/$defs/LoginStep",
           "default": "none"
         },
+        "login_frame": {
+          "anyOf": [
+            {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Template for a login-frame handshake. The token is placed at token_param; any '\u00a7token\u00a7' string in the template is also replaced. When unset, login-frame carriage sends {type_field: 'login', token_param: <token>}.",
+          "title": "Login Frame"
+        },
         "refresh": {
           "$ref": "#/$defs/RefreshPolicy",
           "default": "per-dial"
@@ -69,7 +83,7 @@
         },
         "token_param": {
           "default": "token",
-          "description": "Query key, header name, subprotocol prefix, or login-frame field.",
+          "description": "Query key, header/cookie name, subprotocol prefix, or login-frame field.",
           "title": "Token Param",
           "type": "string"
         },
@@ -108,6 +122,9 @@
         "name": {
           "title": "Name",
           "type": "string"
+        },
+        "probes": {
+          "$ref": "#/$defs/Probes"
         }
       },
       "required": [
@@ -117,9 +134,20 @@
       "title": "Channel",
       "type": "object"
     },
+    "Correlation": {
+      "description": "How a reply is paired to its request.\n\necho: the server echoes the correlation key(s) back on the reply (the\ndefault, and the only mode a correlation-id-echoing server needs).\nordered: the socket answers in order, so the next non-heartbeat frame is\nthe reply. This is what most real servers actually do.\nack: the framing carries its own acknowledgement id (Socket.IO acks), so\nthe codec pairs request to reply below the message map.",
+      "enum": [
+        "echo",
+        "ordered",
+        "ack"
+      ],
+      "title": "Correlation",
+      "type": "string"
+    },
     "Framing": {
       "enum": [
         "json",
+        "text",
         "socketio",
         "length-prefixed",
         "binary"
@@ -252,6 +280,10 @@
       "additionalProperties": false,
       "description": "The message vocabulary: the field that names a type, the keys that pair\na request to its reply, and optional human names for opcodes.",
       "properties": {
+        "correlation": {
+          "$ref": "#/$defs/Correlation",
+          "default": "echo"
+        },
         "correlation_keys": {
           "items": {
             "type": "string"
@@ -275,6 +307,54 @@
       "title": "MessageMap",
       "type": "object"
     },
+    "Probes": {
+      "additionalProperties": false,
+      "description": "Target-specific frames the handshake matrix needs, so no fixture-shaped\nframe is baked into the engine. Each is optional; a check whose probe is\nunset is reported as inconclusive instead of run against a wrong guess.",
+      "properties": {
+        "control_frame": {
+          "anyOf": [
+            {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "A privileged/subscribe frame to send unauthenticated, e.g. {\"type\": \"subscribe\", \"topic\": \"admin\"}. Unset skips the no-auth control check.",
+          "title": "Control Frame"
+        },
+        "identity_field": {
+          "default": "user",
+          "description": "The reply field carrying the bound identity in the identity-probe reply.",
+          "title": "Identity Field",
+          "type": "string"
+        },
+        "identity_param": {
+          "default": "user",
+          "description": "The URL/query parameter tested for identity override in the cross-user-handshake check.",
+          "title": "Identity Param",
+          "type": "string"
+        },
+        "identity_probe": {
+          "anyOf": [
+            {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "The frame that asks the server who it thinks you are, e.g. {\"type\": \"whoami\"}. Unset skips the cross-user-handshake check.",
+          "title": "Identity Probe"
+        }
+      },
+      "title": "Probes",
+      "type": "object"
+    },
     "RefreshPolicy": {
       "enum": [
         "per-dial",
@@ -289,6 +369,7 @@
         "query",
         "header",
         "subprotocol",
+        "cookie",
         "login-frame"
       ],
       "title": "TokenLocation",

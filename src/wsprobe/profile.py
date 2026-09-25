@@ -18,6 +18,7 @@ from pydantic import BaseModel, Field, field_validator, model_validator
 
 class Framing(str, Enum):
     json = "json"
+    text = "text"
     socketio = "socketio"
     length_prefixed = "length-prefixed"
     binary = "binary"
@@ -27,7 +28,24 @@ class TokenLocation(str, Enum):
     query = "query"
     header = "header"
     subprotocol = "subprotocol"
+    cookie = "cookie"
     login_frame = "login-frame"
+
+
+class Correlation(str, Enum):
+    """How a reply is paired to its request.
+
+    echo: the server echoes the correlation key(s) back on the reply (the
+    default, and the only mode a correlation-id-echoing server needs).
+    ordered: the socket answers in order, so the next non-heartbeat frame is
+    the reply. This is what most real servers actually do.
+    ack: the framing carries its own acknowledgement id (Socket.IO acks), so
+    the codec pairs request to reply below the message map.
+    """
+
+    echo = "echo"
+    ordered = "ordered"
+    ack = "ack"
 
 
 class LoginStep(str, Enum):
@@ -88,7 +106,7 @@ class Auth(BaseModel):
     token_location: TokenLocation = TokenLocation.query
     token_param: str = Field(
         default="token",
-        description="Query key, header name, subprotocol prefix, or login-frame field.",
+        description="Query key, header/cookie name, subprotocol prefix, or login-frame field.",
     )
     token_extract: str | None = Field(
         default=None,
@@ -100,6 +118,16 @@ class Auth(BaseModel):
     token_file: str | None = None
     command: list[str] | None = None
     http: HttpLogin | None = None
+
+    login_frame: dict[str, object] | None = Field(
+        default=None,
+        description=(
+            "Template for a login-frame handshake. The token is placed at "
+            "token_param; any '§token§' string in the template is also replaced. "
+            "When unset, login-frame carriage sends {type_field: 'login', "
+            "token_param: <token>}."
+        ),
+    )
 
     @model_validator(mode="after")
     def _source_present(self) -> "Auth":
@@ -123,6 +151,7 @@ class MessageMap(BaseModel):
 
     type_field: str = "type"
     correlation_keys: list[str] = Field(default_factory=lambda: ["cid"])
+    correlation: Correlation = Correlation.echo
     opcode_names: dict[str, str] = Field(default_factory=dict)
 
 
@@ -136,6 +165,34 @@ class Heartbeat(BaseModel):
     payloads: list[str] = Field(default_factory=list)
 
 
+class Probes(BaseModel):
+    """Target-specific frames the handshake matrix needs, so no fixture-shaped
+    frame is baked into the engine. Each is optional; a check whose probe is
+    unset is reported as inconclusive instead of run against a wrong guess."""
+
+    model_config = {"extra": "forbid"}
+
+    control_frame: dict[str, object] | None = Field(
+        default=None,
+        description="A privileged/subscribe frame to send unauthenticated, e.g. "
+        '{"type": "subscribe", "topic": "admin"}. Unset skips the no-auth control check.',
+    )
+    identity_param: str = Field(
+        default="user",
+        description="The URL/query parameter tested for identity override in the "
+        "cross-user-handshake check.",
+    )
+    identity_probe: dict[str, object] | None = Field(
+        default=None,
+        description='The frame that asks the server who it thinks you are, e.g. '
+        '{"type": "whoami"}. Unset skips the cross-user-handshake check.',
+    )
+    identity_field: str = Field(
+        default="user",
+        description="The reply field carrying the bound identity in the identity-probe reply.",
+    )
+
+
 class Channel(BaseModel):
     """One authoritative socket. A target that runs several distinct sockets
     declares one channel each."""
@@ -147,6 +204,7 @@ class Channel(BaseModel):
     auth: Auth = Field(default_factory=Auth)
     messages: MessageMap = Field(default_factory=MessageMap)
     heartbeat: Heartbeat = Field(default_factory=Heartbeat)
+    probes: Probes = Field(default_factory=Probes)
 
 
 class Profile(BaseModel):

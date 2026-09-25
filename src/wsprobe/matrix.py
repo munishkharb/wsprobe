@@ -51,8 +51,7 @@ async def run_matrix(
     *,
     expired_token: Optional[str] = None,
     foreign_token: Optional[str] = None,
-    identity_probe_type: str = "whoami",
-    whoami_field: str = "user",
+    whoami_field: Optional[str] = None,
     expected_identity: Optional[str] = None,
     foreign_identity: Optional[str] = None,
 ) -> list[Observation]:
@@ -113,27 +112,30 @@ async def run_matrix(
             )
         )
 
-    # 4. No-auth control frames: open without authenticating, send a control
-    #    frame, and see whether it is acted on.
+    # 4. No-auth control frames: open without authenticating, send the
+    #    profile's control frame, and see whether it is acted on.
     obs.append(await _no_auth_control(manager))
 
     # 5. Cross-user handshake: bind check between token identity and a
-    #    URL-supplied identity parameter.
+    #    URL-supplied identity parameter, driven by the profile's identity probe.
     if expected_identity is not None and foreign_identity is not None:
         obs.append(
-            await _cross_user_handshake(
-                manager, identity_probe_type, whoami_field, expected_identity, foreign_identity
-            )
+            await _cross_user_handshake(manager, whoami_field, expected_identity, foreign_identity)
         )
 
     return obs
 
 
 async def _no_auth_control(manager: ConnectionManager) -> Observation:
-    tf = manager.channel.messages.type_field
+    control = manager.channel.probes.control_frame
+    if control is None:
+        return Observation(
+            "no-auth-control-frame", "no-probe", INCONCLUSIVE,
+            {"note": "profile declares no probes.control_frame"},
+        )
     try:
         async with manager.dial(DialOptions(drop_token=True)) as conn:
-            reply = await conn.request({tf: "subscribe", "topic": "admin"}, timeout=3.0)
+            reply = await conn.request(dict(control), timeout=3.0)
             acted = isinstance(reply, dict) and "error" not in reply
             return Observation(
                 "no-auth-control-frame",
@@ -147,15 +149,21 @@ async def _no_auth_control(manager: ConnectionManager) -> Observation:
 
 async def _cross_user_handshake(
     manager: ConnectionManager,
-    probe_type: str,
     field_name: str,
     expected: str,
     foreign: str,
 ) -> Observation:
-    tf = manager.channel.messages.type_field
+    probes = manager.channel.probes
+    probe_frame = probes.identity_probe
+    if probe_frame is None:
+        return Observation(
+            "cross-user-handshake", "no-probe", INCONCLUSIVE,
+            {"note": "profile declares no probes.identity_probe"},
+        )
+    field_name = field_name or probes.identity_field
     try:
-        async with manager.dial(DialOptions(extra_query={"user": foreign})) as conn:
-            reply = await conn.request({tf: probe_type}, timeout=3.0)
+        async with manager.dial(DialOptions(extra_query={probes.identity_param: foreign})) as conn:
+            reply = await conn.request(dict(probe_frame), timeout=3.0)
             bound = reply.get(field_name) if isinstance(reply, dict) else None
             honored = bound == foreign
             return Observation(

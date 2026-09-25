@@ -23,11 +23,16 @@ from urllib.parse import urlencode, urlparse, urlunparse
 
 import websockets
 
+from collections import deque
+
 from .capture import RECV, SEND, CaptureWriter, FrameRecord
+from .codec import ack_id as _codec_ack_id
 from .codec import codec_for
 from .profile import (
     Auth,
     Channel,
+    Correlation,
+    Framing,
     LoginStep,
     Profile,
     RefreshPolicy,
@@ -54,6 +59,32 @@ def _extract(body: object, path: Optional[str]) -> str:
     if not isinstance(cur, str):
         raise ConnectionError(f"token_extract path {path!r} did not resolve to a string")
     return cur
+
+
+_TOKEN_PLACEHOLDER = "§token§"
+
+
+def _substitute_token(template: object, token_param: str, token: str) -> object:
+    """Deep-copy a login-frame template, replacing the placeholder string
+    §token§ anywhere it appears. If the template used no placeholder at all,
+    token_param is set at the top level as a fallback."""
+    substituted = False
+
+    def walk(node: object) -> object:
+        nonlocal substituted
+        if isinstance(node, dict):
+            return {k: walk(v) for k, v in node.items()}
+        if isinstance(node, list):
+            return [walk(v) for v in node]
+        if isinstance(node, str) and _TOKEN_PLACEHOLDER in node:
+            substituted = True
+            return node.replace(_TOKEN_PLACEHOLDER, token)
+        return node
+
+    out = walk(template)
+    if isinstance(out, dict) and not substituted:
+        out[token_param] = token
+    return out
 
 
 class _TokenSource:
@@ -152,12 +183,28 @@ class Connection:
     """A live socket with request/reply correlation over the profile's
     correlation keys."""
 
-    def __init__(self, ws, channel: Channel, capture: Optional[CaptureWriter]) -> None:
+    # Decoded frame "type" values that are transport setup, never an application
+    # reply: they are surfaced as pushes but never consumed by a pending request.
+    _SETUP_TYPES = frozenset(
+        {"engineio.open", "engineio.close", "socketio.connect", "socketio.empty"}
+    )
+
+    def __init__(
+        self,
+        ws,
+        channel: Channel,
+        capture: Optional[CaptureWriter],
+        correlation: Optional[Correlation] = None,
+    ) -> None:
         self._ws = ws
         self._channel = channel
         self._codec = codec_for(channel.handshake.framing)
         self._capture = capture
-        self._pending: dict[str, asyncio.Future] = {}
+        self._correlation = correlation or channel.messages.correlation
+        self._is_socketio = channel.handshake.framing is Framing.socketio
+        # echo mode: key -> future. ack mode: ack id -> future. ordered: a FIFO.
+        self._pending: dict[object, asyncio.Future] = {}
+        self._ordered: deque[asyncio.Future] = deque()
         self._pushes: asyncio.Queue = asyncio.Queue()
         self._reader = asyncio.create_task(self._read_loop())
         self._cid = 0
@@ -173,7 +220,13 @@ class Connection:
         if not isinstance(frame, dict):
             return False
         tf = self._channel.messages.type_field
-        return str(frame.get(tf)) in set(self._channel.heartbeat.types)
+        if str(frame.get(tf)) in set(self._channel.heartbeat.types):
+            return True
+        # Engine.IO keepalive is transport-level and always dropped.
+        return str(frame.get("type")) in {"engineio.ping", "engineio.pong"}
+
+    def _is_setup(self, frame: object) -> bool:
+        return isinstance(frame, dict) and str(frame.get("type")) in self._SETUP_TYPES
 
     async def _read_loop(self) -> None:
         try:
@@ -184,16 +237,48 @@ class Connection:
                     frame = {"_raw": raw if isinstance(raw, str) else raw.decode("utf-8", "replace")}
                 if self._capture is not None:
                     self._capture.write(FrameRecord(RECV, frame, self._channel.name))
+                # Answer an Engine.IO ping with a pong so the socket stays open.
+                if self._is_socketio and isinstance(frame, dict) and frame.get("type") == "engineio.ping":
+                    try:
+                        await self._ws.send("3")
+                    except Exception:
+                        pass
+                    continue
                 if self._is_heartbeat(frame):
                     continue
-                key = self._corr_key(frame)
-                fut = self._pending.pop(key, None) if key is not None else None
-                if fut is not None and not fut.done():
-                    fut.set_result(frame)
-                else:
+                if self._is_setup(frame):
                     await self._pushes.put(frame)
+                    continue
+                if self._resolve(frame):
+                    continue
+                await self._pushes.put(frame)
         except websockets.ConnectionClosed:
             pass
+
+    def _resolve(self, frame: object) -> bool:
+        """Pair an incoming application frame to a pending request per the
+        correlation mode. Returns True if it was consumed as a reply."""
+        if self._correlation is Correlation.ordered:
+            while self._ordered:
+                fut = self._ordered.popleft()
+                if not fut.done():
+                    fut.set_result(frame)
+                    return True
+            return False
+        if self._correlation is Correlation.ack:
+            aid = _codec_ack_id(self._codec, frame)
+            fut = self._pending.pop(aid, None) if aid is not None else None
+            if fut is not None and not fut.done():
+                fut.set_result(frame)
+                return True
+            return False
+        # echo (default)
+        key = self._corr_key(frame)
+        fut = self._pending.pop(key, None) if key is not None else None
+        if fut is not None and not fut.done():
+            fut.set_result(frame)
+            return True
+        return False
 
     async def send(self, frame: object) -> None:
         if self._capture is not None:
@@ -201,21 +286,46 @@ class Connection:
         await self._ws.send(self._codec.encode(frame))
 
     async def request(self, frame: object, timeout: float = 5.0) -> object:
-        """Send a frame and return its correlated reply.
+        """Send a frame and return its correlated reply, paired per the
+        channel's correlation mode.
 
-        If the frame carries no correlation value the manager stamps the first
-        correlation key with an auto-incrementing id, so a caller does not have
-        to track it by hand.
+        echo: the first correlation key is stamped with an auto-incrementing id
+        if the frame carries none, and the reply is matched on that key.
+        ordered: the next application frame the server sends is the reply.
+        ack: an ack id is stamped and the codec pairs the acknowledgement.
         """
         frame = dict(frame) if isinstance(frame, dict) else frame
+        loop = asyncio.get_event_loop()
+        fut: asyncio.Future = loop.create_future()
+
+        if self._correlation is Correlation.ordered:
+            self._ordered.append(fut)
+            await self.send(frame)
+            try:
+                return await asyncio.wait_for(fut, timeout)
+            finally:
+                if fut in self._ordered:
+                    self._ordered.remove(fut)
+
+        if self._correlation is Correlation.ack:
+            self._cid += 1
+            aid = self._cid
+            if isinstance(frame, dict):
+                frame.setdefault("cid", aid)
+            self._pending[aid] = fut
+            await self.send(frame)
+            try:
+                return await asyncio.wait_for(fut, timeout)
+            finally:
+                self._pending.pop(aid, None)
+
+        # echo (default)
         if isinstance(frame, dict):
             keys = self._channel.messages.correlation_keys
             if keys and not any(k in frame for k in keys):
                 self._cid += 1
                 frame[keys[0]] = self._cid
         key = self._corr_key(frame)
-        loop = asyncio.get_event_loop()
-        fut: asyncio.Future = loop.create_future()
         if key is not None:
             self._pending[key] = fut
         await self.send(frame)
@@ -283,6 +393,10 @@ class ConnectionManager:
                 headers[auth.token_param] = use_token
             elif loc is TokenLocation.subprotocol:
                 subprotocols.append(f"{auth.token_param}.{use_token}")
+            elif loc is TokenLocation.cookie:
+                cookie = f"{auth.token_param}={use_token}"
+                existing = headers.get("Cookie")
+                headers["Cookie"] = f"{existing}; {cookie}" if existing else cookie
         new = parsed._replace(query=urlencode(query))
         return urlunparse(new), headers, subprotocols
 
@@ -312,15 +426,47 @@ class ConnectionManager:
         if ssl_ctx is not None:
             kwargs["ssl"] = ssl_ctx
 
-        if self.channel.auth.token_location is TokenLocation.login_frame and token is not None and not opts.drop_token:
-            ws = await websockets.connect(uri, **kwargs)
-            conn = Connection(ws, self.channel, capture)
-            tf = self.channel.messages.type_field
-            await conn.send({tf: "login", self.channel.auth.token_param: token})
-            return conn
-
         ws = await websockets.connect(uri, **kwargs)
-        return Connection(ws, self.channel, capture)
+        conn = Connection(ws, self.channel, capture)
+
+        if self.channel.handshake.framing is Framing.socketio:
+            await self._socketio_setup(conn, None if opts.drop_token else token)
+        elif self.channel.auth.token_location is TokenLocation.login_frame and token is not None and not opts.drop_token:
+            await conn.send(self._login_frame(token))
+
+        return conn
+
+    def _login_frame(self, token: str) -> dict:
+        """Build the login handshake frame. Uses the profile's login_frame
+        template when set (token placed at token_param, and any '§token§'
+        string substituted), else the minimal {type: login, token_param: token}."""
+        auth = self.channel.auth
+        tf = self.channel.messages.type_field
+        if auth.login_frame is not None:
+            return _substitute_token(auth.login_frame, auth.token_param, token)
+        return {tf: "login", auth.token_param: token}
+
+    async def _socketio_setup(self, conn: "Connection", token: Optional[str]) -> None:
+        """Drive the Engine.IO/Socket.IO v4 connect handshake on websocket
+        transport: consume the server's `0{...}` open, then send the Socket.IO
+        `40` connect (carrying auth when a token rides the connect packet), and
+        consume the server's connect acknowledgement."""
+        auth = self.channel.auth
+        # The server sends the Engine.IO open frame first; drain it if it lands.
+        try:
+            await conn.next_push(timeout=3.0)
+        except asyncio.TimeoutError:
+            pass
+        if token is not None and auth.token_location is TokenLocation.login_frame:
+            payload = json.dumps({auth.token_param: token}, separators=(",", ":"))
+            await conn._ws.send(f"40{payload}")
+        else:
+            await conn._ws.send("40")
+        # Drain the Socket.IO connect acknowledgement.
+        try:
+            await conn.next_push(timeout=3.0)
+        except asyncio.TimeoutError:
+            pass
 
     @asynccontextmanager
     async def dial(self, opts: Optional[DialOptions] = None) -> AsyncIterator[Connection]:

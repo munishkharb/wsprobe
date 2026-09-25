@@ -15,6 +15,7 @@ from wsprobe.profile import (
     Handshake,
     Heartbeat,
     MessageMap,
+    Probes,
     Profile,
     RefreshPolicy,
     TokenLocation,
@@ -43,6 +44,12 @@ def build_profile(host: str, port: int, refresh: RefreshPolicy = RefreshPolicy.p
                 ),
                 messages=MessageMap(type_field="type", correlation_keys=["cid"]),
                 heartbeat=Heartbeat(types=["ping", "pong"]),
+                probes=Probes(
+                    control_frame={"type": "subscribe", "topic": "admin"},
+                    identity_probe={"type": "whoami"},
+                    identity_param="user",
+                    identity_field="user",
+                ),
             )
         ],
     )
