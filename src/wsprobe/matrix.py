@@ -26,6 +26,18 @@ INCONCLUSIVE = "inconclusive"
 
 ORIGIN_STRIPPED = "<stripped>"
 
+
+def _error_tag(exc: Exception) -> str:
+    """A compact tag for an exception, matching try_dial's vocabulary, instead
+    of a full exception repr. A refused upgrade is the common case and reads as
+    http-<code>; when the server refuses the unauthorized identity here, that is
+    the control working, not a tool error."""
+    if isinstance(exc, websockets.InvalidStatus):
+        return f"http-{exc.response.status_code}"
+    if isinstance(exc, websockets.InvalidHandshake):
+        return f"handshake-{type(exc).__name__}"
+    return f"{type(exc).__name__}"
+
 # Origin values an allowlist built on a naive substring or unanchored regex
 # tends to wave through.
 def _bypass_origins(target_host: str) -> list[str]:
@@ -153,7 +165,7 @@ async def _no_auth_control(manager: ConnectionManager) -> Observation:
             {"error": f"http-{exc.response.status_code}"},
         )
     except Exception as exc:
-        return Observation("no-auth-control-frame", "no-socket", INCONCLUSIVE, {"error": repr(exc)})
+        return Observation("no-auth-control-frame", "no-socket", INCONCLUSIVE, {"error": _error_tag(exc)})
 
 
 async def _cross_user_handshake(
@@ -181,8 +193,15 @@ async def _cross_user_handshake(
                 INSECURE_SHAPE if honored else CONTROL_PRESENT,
                 {"token_identity": expected, "url_identity": foreign, "server_bound": bound},
             )
+    except websockets.InvalidStatus as exc:
+        # The server refused the upgrade carrying the foreign identity: the
+        # binding control is present at the handshake.
+        return Observation(
+            "cross-user-handshake", "upgrade-refused", CONTROL_PRESENT,
+            {"url_identity": foreign, "error": f"http-{exc.response.status_code}"},
+        )
     except Exception as exc:
-        return Observation("cross-user-handshake", "no-socket", INCONCLUSIVE, {"error": repr(exc)})
+        return Observation("cross-user-handshake", "no-socket", INCONCLUSIVE, {"error": _error_tag(exc)})
 
 
 def observations_to_dicts(obs: list[Observation]) -> list[dict]:

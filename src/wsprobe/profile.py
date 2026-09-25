@@ -38,7 +38,11 @@ class Correlation(str, Enum):
     echo: the server echoes the correlation key(s) back on the reply (the
     default, and the only mode a correlation-id-echoing server needs).
     ordered: the socket answers in order, so the next non-heartbeat frame is
-    the reply. This is what most real servers actually do.
+    the reply. This is what most real servers actually do. Caveat: on a channel
+    that also sends unsolicited server-initiated frames (broadcasts, fan-out,
+    notifications), an ordered reply can mispair with a push; prefer echo or ack
+    where a correlation id exists, and keep to single-in-flight requests on a
+    pushy socket.
     ack: the framing carries its own acknowledgement id (Socket.IO acks), so
     the codec pairs request to reply below the message map.
     """

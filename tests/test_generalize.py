@@ -317,3 +317,51 @@ def test_bridge_delivers_injection_to_a_sql_sink():
     finally:
         httpd.shutdown()
         loop.call_soon_threadsafe(loop.stop)
+
+
+# --- capture redacts the configured token field (audit H3) --------------------
+
+def test_capture_redacts_custom_token_param(tmp_path):
+    """A login-frame carrying the token under a profile-configured field name the
+    static pattern does not match (e.g. 'jwt') is still redacted in the capture."""
+    from wsprobe.capture import CaptureWriter, FrameRecord, SEND, read_capture
+
+    w = CaptureWriter(tmp_path / "c.ndjson", extra_redact_keys=["jwt"])
+    with w:
+        w.write(FrameRecord(SEND, {"type": "auth", "params": {"jwt": "SECRET-JWT"}, "user": "alice"}))
+    rec = read_capture(tmp_path / "c.ndjson")[0]
+    assert rec.frame["params"]["jwt"] == "[redacted]"
+    assert rec.frame["user"] == "alice"
+
+
+# --- ordered-mode timeout does not desync the socket (audit medium) -----------
+
+async def test_ordered_timeout_does_not_mispair_next_request():
+    """A slow reply that arrives after its request timed out must be dropped as
+    stale, not handed to the next request. Regression for the ordered-mode
+    off-by-one desync."""
+    import asyncio as _a
+
+    async def handler(ws):
+        first = True
+        async for raw in ws:
+            msg = json.loads(raw)
+            if first:
+                first = False
+                await _a.sleep(0.5)  # late: past the caller's timeout
+                await ws.send(json.dumps({"reply_to": msg["n"]}))
+            else:
+                await ws.send(json.dumps({"reply_to": msg["n"]}))
+
+    async with _serve(handler) as (host, port):
+        prof = _profile(host, port, correlation=Correlation.ordered)
+        mgr = ConnectionManager(prof, token="x")
+        async with mgr.dial() as conn:
+            try:
+                await conn.request({"n": 1}, timeout=0.2)
+                assert False, "first request should have timed out"
+            except _a.TimeoutError:
+                pass
+            await _a.sleep(0.5)  # let the stale reply for n=1 arrive and be dropped
+            r2 = await conn.request({"n": 2}, timeout=2.0)
+        assert r2["reply_to"] == 2  # got its own reply, not the stale n=1

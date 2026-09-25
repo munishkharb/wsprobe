@@ -2,8 +2,12 @@
 
 A capture is a flat sequence of frame records. The tool's own format is one
 JSON object per line (NDJSON) with a timestamp, direction, channel, and the
-decoded frame. Tokens never reach a capture file: the writer records frames and
-metadata, not the material that opened the socket.
+decoded frame. Secrets are redacted before a frame is written: field names that
+look like credentials are masked by a fixed pattern, and the connection layer
+additionally masks the profile's configured token field (which may be named
+anything, e.g. `jwt` or `sid`). This is best-effort redaction, not an absolute
+guarantee — a token buried in a field that neither the pattern nor the profile
+names would still be written, so treat capture files as sensitive.
 """
 
 from __future__ import annotations
@@ -32,34 +36,39 @@ class FrameRecord:
     channel: str = "default"
     ts: float = field(default_factory=time.time)
 
-    def to_json(self) -> dict:
+    def to_json(self, extra_keys: frozenset[str] = frozenset()) -> dict:
         return {
             "ts": round(self.ts, 6),
             "direction": self.direction,
             "channel": self.channel,
-            "frame": _redact(self.frame),
+            "frame": _redact(self.frame, extra_keys),
         }
 
 
-def _redact(value: object) -> object:
+def _redact(value: object, extra_keys: frozenset[str] = frozenset()) -> object:
     if isinstance(value, dict):
         out = {}
         for k, v in value.items():
-            if isinstance(k, str) and _SECRET_KEYS.search(k):
+            if isinstance(k, str) and (_SECRET_KEYS.search(k) or k in extra_keys):
                 out[k] = _MASK
             else:
-                out[k] = _redact(v)
+                out[k] = _redact(v, extra_keys)
         return out
     if isinstance(value, list):
-        return [_redact(v) for v in value]
+        return [_redact(v, extra_keys) for v in value]
     return value
 
 
 class CaptureWriter:
-    """Append-only NDJSON writer. Used as a context manager."""
+    """Append-only NDJSON writer. Used as a context manager.
 
-    def __init__(self, path: str | Path) -> None:
+    extra_redact_keys names additional field names to mask beyond the fixed
+    secret-name pattern — the connection layer passes the profile's configured
+    token field here, which may be named anything (jwt, sid, access...)."""
+
+    def __init__(self, path: str | Path, extra_redact_keys: Iterable[str] = ()) -> None:
         self.path = Path(path)
+        self._extra = frozenset(extra_redact_keys)
         self._fh = None
 
     def __enter__(self) -> "CaptureWriter":
@@ -73,7 +82,7 @@ class CaptureWriter:
 
     def write(self, record: FrameRecord) -> None:
         assert self._fh is not None, "writer is not open"
-        self._fh.write(json.dumps(record.to_json(), separators=(",", ":")) + "\n")
+        self._fh.write(json.dumps(record.to_json(self._extra), separators=(",", ":")) + "\n")
         self._fh.flush()
 
 

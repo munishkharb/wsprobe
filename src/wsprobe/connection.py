@@ -205,6 +205,7 @@ class Connection:
         # echo mode: key -> future. ack mode: ack id -> future. ordered: a FIFO.
         self._pending: dict[object, asyncio.Future] = {}
         self._ordered: deque[asyncio.Future] = deque()
+        self._ordered_skip = 0  # stale replies to drop after ordered-request timeouts
         self._pushes: asyncio.Queue = asyncio.Queue()
         self._reader = asyncio.create_task(self._read_loop())
         self._cid = 0
@@ -259,6 +260,12 @@ class Connection:
         """Pair an incoming application frame to a pending request per the
         correlation mode. Returns True if it was consumed as a reply."""
         if self._correlation is Correlation.ordered:
+            # A request that timed out leaves its reply still in flight. Drop
+            # exactly that many arriving frames as stale, so a late reply never
+            # mispairs with a newer request and desyncs the rest of the socket.
+            if self._ordered_skip > 0:
+                self._ordered_skip -= 1
+                return True
             while self._ordered:
                 fut = self._ordered.popleft()
                 if not fut.done():
@@ -303,6 +310,13 @@ class Connection:
             await self.send(frame)
             try:
                 return await asyncio.wait_for(fut, timeout)
+            except asyncio.TimeoutError:
+                # The reply may still arrive later; ensure it is dropped as stale
+                # rather than handed to the next request.
+                if fut in self._ordered:
+                    self._ordered.remove(fut)
+                self._ordered_skip += 1
+                raise
             finally:
                 if fut in self._ordered:
                     self._ordered.remove(fut)
@@ -481,7 +495,10 @@ class ConnectionManager:
         capture = None
         writer = None
         if self._capture_path is not None:
-            writer = CaptureWriter(self._capture_path)
+            # Redact the profile's configured token field too, whatever it is
+            # named, so a login-frame or custom token_param is not written in
+            # cleartext to the capture.
+            writer = CaptureWriter(self._capture_path, extra_redact_keys=[self.channel.auth.token_param])
             capture = writer.__enter__()
         conn = await self._open(opts, capture)
         try:

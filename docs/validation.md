@@ -3,10 +3,43 @@
 Proof that wsprobe catches what it claims to, on real targets run locally under
 authorization, and stays quiet on a server that does the right thing.
 
+## Release gate
+
+The gate that blocks a v0.1.0 release is the deterministic suite against the
+**synthetic fixture** (spec §8) plus the **clean control**: every seeded bug
+caught, and **zero** findings on the correct server. `uv run pytest -q` →
+**35 passed**. The gate is code, not a camera; the video is a showcase, not the
+gate.
+
+Fixture coverage mapped to the spec's 22-item attack catalog. The fixture seeds
+one clear bug per class for the classes wsprobe tests *directly*; the assist-only
+and later-phase classes are out of the fixture's scope by design (see spec §2).
+
+| Catalog item | In fixture? | wsprobe check | Caught |
+|---|---|---|---|
+| 1 Unauthenticated upgrade | ✅ | matrix unauth-upgrade | ✅ |
+| 2 Missing Origin / CSWSH | ✅ | matrix origin-* | ✅ |
+| 6 Identity not re-bound per frame (BOLA) | ✅ | two-account diff + matrix cross-user | ✅ |
+| 7 Missing message-level authz | ✅ | matrix no-auth-control-frame | ✅ |
+| 9 Message-field injection to a sink | ✅ | fan-out (XSS) + SQLi sink via bridge | ✅ |
+| 16 Replay / missing idempotency | ✅ | replay | ✅ |
+| 3,4,5,8,10-15,17-22 | out of fixture scope | assist-only or later-phase (spec §2/§11) | n/a |
+
+Zero false positives: the clean control (T-CTL) produces no insecure-shape
+observation on any of these checks.
+
 Each target has its **ground truth** (the findings expected, written from the
 target's design and its observed handshake, before interpreting a wsprobe run)
 and a **result** table: caught, missed, or false positive, with the exact
 command and the output file under `runs/`.
+
+> **Reproducing the evidence.** The `runs/` directory is gitignored (it holds
+> local run artifacts with machine-specific paths), so the `Evidence` cells below
+> name files you *regenerate locally*, not files shipped in the repo. Bring the
+> lab up and replay them with `runs/runbook.sh` (fixture-only rows need no lab —
+> `bash scripts/demo.sh` reproduces those). The GATE (the test suite) is the part
+> that ships and runs in CI; the `runs/` captures are how a reviewer re-derives
+> the live-target rows on their own machine.
 
 Method note: wsprobe reports *observations* of insecure shapes, never a
 "confirmed" verdict. "Caught" below means wsprobe reported the insecure shape
@@ -125,7 +158,7 @@ query; regression test `test_handshake_url_query_is_preserved`.
 
 ---
 
-## T-DVWS — OWASP Damn Vulnerable Web Sockets (pending operator injection runs)
+## T-DVWS — OWASP Damn Vulnerable Web Sockets (MIT)
 
 Upstream `interference-security/DVWS` (MIT), built from its Dockerfile; ws on
 `:8080`. wsprobe's own handshake checks run against it directly; the injection
