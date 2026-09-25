@@ -60,6 +60,24 @@ uv venv --python 3.12
 uv pip install -e '.[dev]'
 ```
 
+## Quickstart
+
+```
+# 1. Draft a profile from a capture (a proxy export, or wsprobe's own capture)
+wsprobe analyze capture.ndjson --emit-profile target.yaml
+#    then edit target.yaml: the handshake URL, token location, message map, probes
+
+# 2. Test the handshake with no session
+wsprobe matrix target.yaml
+
+# 3. Send the same frame as two identities and diff the replies (BOLA/IDOR)
+wsprobe diff target.yaml --frame '{"type":"getRecord","id":1002}' \
+  --token-a a.tok --token-b b.tok
+
+# 4. Reach a frame field with an HTTP injection tool
+wsprobe bridge target.yaml --frame '{"q":"§FUZZ§"}'   # then point sqlmap at 127.0.0.1:8081
+```
+
 ## The profile
 
 A profile is the single piece of target-specific knowledge the engine needs: a
@@ -207,21 +225,6 @@ async def main():
 asyncio.run(main())
 ```
 
-## The synthetic vulnerable fixture
-
-The repo ships a small synthetic vulnerable WebSocket server (`tests/fixture.py`)
-that seeds one clear bug per class: identity bound only at the handshake and not
-re-checked per frame, an upgrade accepted with no token, no Origin validation, a
-message field reflected to other clients unvalidated, and a state-changing claim
-with no idempotency guard. The test suite drives every capability against it:
-
-```
-uv run pytest -v
-```
-
-The fixture is synthetic and self-contained. No engagement data, no live
-target, no target-specific logic in the tool.
-
 ## Development
 
 Run `pre-commit install` once per clone. On every commit this then runs,
@@ -238,15 +241,6 @@ Both scanners run as already-installed binaries (`brew install betterleaks`;
 opengrep via its install script) rather than something pre-commit builds for
 you. Run everything on demand with `pre-commit run --all-files`.
 
-## Security of the tool itself
-
-Tokens are secrets: never written to a capture file, never printed, redacted
-from any frame the analyzer persists. The sweep and replay engines pace
-requests rather than bursting. TLS verification is on by default, with an
-explicit flag to disable it for a proxied lab. The only verb that opens a
-listening socket is `wsprobe bridge`, and it binds `127.0.0.1` only and paces
-one frame at a time; every other verb opens outbound sockets only.
-
 ## License
 
 MIT. See `LICENSE`.
@@ -255,5 +249,4 @@ MIT. See `LICENSE`.
 
 `websockets` (BSD-3-Clause), `pydantic` (MIT), `typer` (MIT), `PyYAML` (MIT),
 `pytest` (MIT), invoked as libraries. Methodology is distilled from public
-sources on WebSocket security testing. This is an original, clean-room
-implementation: no third-party code beyond the declared libraries.
+sources on WebSocket security testing.
