@@ -14,6 +14,8 @@ import asyncio
 from dataclasses import asdict, dataclass, field
 from typing import Optional
 
+import websockets
+
 from .connection import ConnectionManager, DialOptions
 from .profile import Profile, TokenLocation
 
@@ -143,6 +145,13 @@ async def _no_auth_control(manager: ConnectionManager) -> Observation:
                 INSECURE_SHAPE if acted else CONTROL_PRESENT,
                 {"reply": reply},
             )
+    except websockets.InvalidStatus as exc:
+        # The server refused the unauthenticated upgrade, so no control frame
+        # can reach it: the control is present one layer earlier.
+        return Observation(
+            "no-auth-control-frame", "upgrade-refused", CONTROL_PRESENT,
+            {"error": f"http-{exc.response.status_code}"},
+        )
     except Exception as exc:
         return Observation("no-auth-control-frame", "no-socket", INCONCLUSIVE, {"error": repr(exc)})
 

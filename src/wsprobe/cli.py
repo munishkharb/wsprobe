@@ -73,6 +73,7 @@ def matrix_cmd(
     foreign_identity: Optional[str] = None,
     no_tls_verify: bool = typer.Option(False, "--no-tls-verify", help="Disable TLS verification for a proxied lab."),
     as_json: bool = typer.Option(False, "--json", help="Emit observations as JSON."),
+    sarif: Optional[str] = typer.Option(None, "--sarif", help="Also write insecure-shape observations as SARIF 2.1.0 to this path."),
 ) -> None:
     """Run the handshake security matrix and report observations."""
     p = load_profile(profile)
@@ -86,6 +87,8 @@ def matrix_cmd(
             foreign_identity=foreign_identity,
         )
     )
+    if sarif:
+        _write_sarif(sarif, mgr.channel.handshake.url, p.name, observations=obs)
     if as_json:
         payload = jsonout.matrix_payload(obs, profile=p.name, channel=mgr.channel.name)
         typer.echo(jsonout.dumps(payload))
@@ -146,12 +149,15 @@ def diff(
     name_b: str = "B",
     channel: Optional[str] = None,
     as_json: bool = typer.Option(False, "--json", help="Emit the diff observation as JSON."),
+    sarif: Optional[str] = typer.Option(None, "--sarif", help="Also write a same-across-identities reading as SARIF 2.1.0 to this path."),
 ) -> None:
     """Two-account authorization diff: same frame from two identities, diff the replies."""
     p = load_profile(profile)
     mgr_a = ConnectionManager(p, channel=channel, token=_read_token(token_a), identity=name_a)
     mgr_b = ConnectionManager(p, channel=channel, token=_read_token(token_b), identity=name_b)
     result = asyncio.run(authz.two_account_diff(mgr_a, mgr_b, json.loads(frame)))
+    if sarif:
+        _write_sarif(sarif, mgr_a.channel.handshake.url, p.name, diffs=[result])
     if as_json:
         payload = jsonout.diff_payload(result, profile=p.name, channel=mgr_a.channel.name)
         typer.echo(jsonout.dumps(payload))
@@ -229,6 +235,12 @@ def bridge(
         httpd.serve_forever()
     except KeyboardInterrupt:
         httpd.shutdown()
+
+
+def _write_sarif(path: str, url: str, profile_name: str, **kwargs) -> None:
+    from .sarif import sarif_log
+
+    Path(path).write_text(json.dumps(sarif_log(target_url=url, profile=profile_name, **kwargs), indent=2) + "\n")
 
 
 def _maybe_int(value: str):
