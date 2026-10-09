@@ -10,3 +10,4 @@ dist/
 *.ndjson
 token.txt
 runs/
+.DS_Store

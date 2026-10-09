@@ -74,7 +74,14 @@ wsprobe matrix target.yaml
 wsprobe diff target.yaml --frame '{"type":"getRecord","id":1002}' \
   --token-a a.tok --token-b b.tok
 
-# 4. Reach a frame field with an HTTP injection tool
+# 4. Walk one field over a list of values (IDOR, enumeration)
+wsprobe sweep target.yaml --frame '{"type":"getRecord","id":0}' \
+  --field id --values 1001,1002,1003
+
+# 5. Re-drive a captured state-changing sequence (missing nonce or idempotency)
+wsprobe replay target.yaml session.ndjson
+
+# 6. Reach a frame field with an HTTP injection tool
 wsprobe bridge target.yaml --frame '{"q":"§FUZZ§"}'   # then point sqlmap at 127.0.0.1:8081
 ```
 
@@ -125,13 +132,13 @@ One profile adapts the generic engine to a specific target:
 |------|--------------|
 | `wsprobe schema` | Export the profile JSON schema as a build artifact. |
 | `wsprobe validate` | Load and validate a profile. |
-| `wsprobe matrix` | Handshake security matrix: unauthenticated upgrade, expired and foreign token, CSWSH/Origin variants, no-auth control frames, cross-user handshake binding. |
-| `wsprobe repl` | Interactive authenticated client: one frame per line, correlated reply, recorded to a capture. |
+| `wsprobe matrix` | Handshake security matrix: unauthenticated upgrade, expired and foreign token (operator-supplied), CSWSH/Origin variants (stripped, `null`, a sibling host, and three allowlist-regex bypass shapes), no-auth control frames, cross-user handshake binding (token identity vs an identity passed in the URL). |
+| `wsprobe repl` | Interactive authenticated client: one frame per line, correlated reply, recorded to a capture. Credential-looking fields and the profile's token field are masked before a frame is written; treat captures as sensitive anyway. |
 | `wsprobe analyze` | Ingest captures, drop heartbeats, inventory message types, correlate request and reply, and emit a draft profile. Opens no socket. |
 | `wsprobe diff` | Two-account authorization diff: the same frame from two identities, replies compared. |
-| `wsprobe sweep` | Field sweep: one field over a list of values on one identity, correlated replies. |
+| `wsprobe sweep` | Field sweep: one field over a list of values on one identity, correlated replies. Paced one request at a time, never a burst. |
 | `wsprobe replay` | Re-drive a captured outbound sequence on a fresh authenticated socket, optional field mutation. |
-| `wsprobe bridge` | Loopback HTTP-to-WebSocket bridge: an HTTP tool (injection tester, fuzzer) drives one frame field via a `§FUZZ§` placeholder while wsprobe owns the handshake and token refresh. Binds `127.0.0.1` only. |
+| `wsprobe bridge` | Loopback HTTP-to-WebSocket bridge: an HTTP tool (injection tester, fuzzer) drives one frame field via a `§FUZZ§` placeholder while wsprobe owns the handshake and token refresh. Binds `127.0.0.1` only and sends one frame at a time. |
 
 ## Observations, not verdicts
 
@@ -240,6 +247,10 @@ against staged files:
 Both scanners run as already-installed binaries (`brew install betterleaks`;
 opengrep via its install script) rather than something pre-commit builds for
 you. Run everything on demand with `pre-commit run --all-files`.
+
+## Releases
+
+Developed privately and published here in releases. What changed in each version, and why, is in [CHANGELOG.md](CHANGELOG.md).
 
 ## License
 
