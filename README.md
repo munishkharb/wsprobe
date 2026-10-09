@@ -68,14 +68,14 @@ wsprobe analyze capture.ndjson --emit-profile target.yaml
 #    then edit target.yaml: the handshake URL, token location, message map, probes
 
 # 2. Test the handshake with no session
-wsprobe matrix target.yaml
+wsprobe handshake target.yaml
 
 # 3. Send the same frame as two identities and diff the replies (BOLA/IDOR)
 wsprobe diff target.yaml --frame '{"type":"getRecord","id":1002}' \
   --token-a a.tok --token-b b.tok
 
 # 4. Walk one field over a list of values (IDOR, enumeration)
-wsprobe sweep target.yaml --frame '{"type":"getRecord","id":0}' \
+wsprobe fuzz target.yaml --frame '{"type":"getRecord","id":0}' \
   --field id --values 1001,1002,1003
 
 # 5. Re-drive a captured state-changing sequence (missing nonce or idempotency)
@@ -132,13 +132,18 @@ One profile adapts the generic engine to a specific target:
 |------|--------------|
 | `wsprobe schema` | Export the profile JSON schema as a build artifact. |
 | `wsprobe validate` | Load and validate a profile. |
-| `wsprobe matrix` | Handshake security matrix: unauthenticated upgrade, expired and foreign token (operator-supplied), CSWSH/Origin variants (stripped, `null`, a sibling host, and three allowlist-regex bypass shapes), no-auth control frames, cross-user handshake binding (token identity vs an identity passed in the URL). |
+| `wsprobe handshake` | Handshake authentication test: unauthenticated upgrade, expired and foreign token (operator-supplied), CSWSH/Origin variants (stripped, `null`, a sibling host, and three allowlist-regex bypass shapes), no-auth control frames, cross-user handshake binding (token identity vs an identity passed in the URL). |
 | `wsprobe repl` | Interactive authenticated client: one frame per line, correlated reply, recorded to a capture. Credential-looking fields and the profile's token field are masked before a frame is written; treat captures as sensitive anyway. |
 | `wsprobe analyze` | Ingest captures, drop heartbeats, inventory message types, correlate request and reply, and emit a draft profile. Opens no socket. |
 | `wsprobe diff` | Two-account authorization diff: the same frame from two identities, replies compared. |
-| `wsprobe sweep` | Field sweep: one field over a list of values on one identity, correlated replies. Paced one request at a time, never a burst. |
+| `wsprobe fuzz` | Field sweep: one field over a list of values on one identity, correlated replies. Paced one request at a time, never a burst. |
 | `wsprobe replay` | Re-drive a captured outbound sequence on a fresh authenticated socket, optional field mutation. |
+| `wsprobe persist` | Hold one authenticated socket open across a session revocation (logout, token expiry, role change) and report whether a privileged frame is still served afterward. Revoke by hand with `--prompt` or wait a scripted `--settle` interval. |
+| `wsprobe race` | Fire N identical frames at once, on N sockets held at a barrier, and report how many the server accepted - the check-then-commit window on a once-only action (a coupon or payout claimed twice). Moves real state, so it is count-capped and will not fire without `--yes`. |
 | `wsprobe bridge` | Loopback HTTP-to-WebSocket bridge: an HTTP tool (injection tester, fuzzer) drives one frame field via a `§FUZZ§` placeholder while wsprobe owns the handshake and token refresh. Binds `127.0.0.1` only and sends one frame at a time. |
+
+> `handshake` and `fuzz` were called `matrix` and `sweep` through v0.1.x. The old
+> names still work as hidden aliases, so existing scripts keep running.
 
 ## Observations, not verdicts
 
@@ -150,16 +155,20 @@ reply) is a lead to reproduce, not a finding the tool has closed.
 
 ## JSON output
 
-The observation verbs default to a human table. Pass `--json` to `matrix`,
-`diff`, `sweep`, or `analyze` for a stable, documented structure a script or the
+The observation verbs default to a human table. Pass `--json` to `handshake`,
+`diff`, `fuzz`, or `analyze` for a stable, documented structure a script or the
 Burp companion panel can parse instead. Each payload carries a `schema` tag of
 the form `wsprobe.<command>/v1` and a `command` field, so a reader dispatches on
 `schema` and trusts the keys under it. The reading vocabulary is the same one the
 tables use. The single
 source of the shapes is `src/wsprobe/jsonout.py`.
 
+The `--json` envelope keeps the `wsprobe.matrix/v1` schema tag and `command:
+"matrix"` for back-compat with existing parsers; the envelope is renamed
+alongside the Burp companion rework in v0.2.
+
 ```
-wsprobe matrix profile.yaml --token-file valid.tok --json
+wsprobe handshake profile.yaml --token-file valid.tok --json
 ```
 
 ```json
@@ -176,19 +185,19 @@ wsprobe matrix profile.yaml --token-file valid.tok --json
 ```
 
 `diff` emits `frame`, `identity_a`/`identity_b`, `reading`, and `reply_a`/`reply_b`;
-`sweep` emits `field`, `distinct_replies`, and `rows`; `analyze` emits the frame
+`fuzz` emits `field`, `distinct_replies`, and `rows`; `analyze` emits the frame
 `inventory` and `correlations`. See `src/wsprobe/jsonout.py` for the full field
 list of each.
 
 ### SARIF
 
-`matrix` and `diff` also take `--sarif <path>` to write the insecure-shape leads
+`handshake` and `diff` also take `--sarif <path>` to write the insecure-shape leads
 as SARIF 2.1.0, so a run drops into any code-scanning viewer. Results are
 `level: warning` and phrased as leads to reproduce, never verdicts; a sample is
 at `docs/sample.sarif.json`.
 
 ```
-wsprobe matrix profile.yaml --token-file valid.tok --sarif out.sarif.json
+wsprobe handshake profile.yaml --token-file valid.tok --sarif out.sarif.json
 ```
 
 ## Burp companion

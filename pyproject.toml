@@ -1,6 +1,6 @@
 [project]
 name = "wsprobe"
-version = "0.1.1"
+version = "0.2.0"
 description = "A WebSocket security review toolkit that opens its own authenticated socket and covers one protocol surface end to end."
 readme = "README.md"
 license = { text = "MIT" }

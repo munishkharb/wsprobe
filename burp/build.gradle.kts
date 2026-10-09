@@ -4,14 +4,16 @@
 import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 
 plugins {
-    kotlin("jvm") version "1.9.24"
+    kotlin("jvm") version "2.2.20"
     // Bundles the one runtime dependency (SnakeYAML) into the extension JAR,
     // since Burp provides only the Montoya API on the extension classpath.
-    id("com.github.johnrengelman.shadow") version "8.1.1"
+    // com.gradleup.shadow is the maintained fork of the (dead) johnrengelman
+    // plugin and is the one that supports Gradle 9.
+    id("com.gradleup.shadow") version "9.0.0"
 }
 
 group = "wsprobe"
-version = "0.1.0"
+version = "0.2.0"
 
 repositories {
     mavenCentral()
@@ -30,8 +32,7 @@ dependencies {
 
 kotlin {
     // Target JDK 17 bytecode so the JAR loads in Burp's JRE (17+). Compiles
-    // with whatever JDK runs Gradle (17 or newer); no separate JDK 17 install
-    // is required.
+    // with whatever JDK runs Gradle (17 or newer).
     compilerOptions {
         jvmTarget.set(JvmTarget.JVM_17)
     }

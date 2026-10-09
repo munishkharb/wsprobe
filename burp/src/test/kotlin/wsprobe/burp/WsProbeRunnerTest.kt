@@ -14,15 +14,60 @@ import kotlin.test.assertTrue
 class WsProbeRunnerTest {
 
     @Test
-    fun `matrix args carry --json and an optional token file`() {
+    fun `handshake args carry --json and an optional token file`() {
         assertEquals(
-            listOf("wsprobe", "matrix", "p.yaml", "--json"),
-            WsProbeCli.matrixArgs("wsprobe", "p.yaml", null),
+            listOf("wsprobe", "handshake", "p.yaml", "--json"),
+            WsProbeCli.handshakeArgs("wsprobe", "p.yaml", null),
         )
         assertEquals(
-            listOf("wsprobe", "matrix", "p.yaml", "--token-file", "t.tok", "--json"),
-            WsProbeCli.matrixArgs("wsprobe", "p.yaml", "t.tok"),
+            listOf("wsprobe", "handshake", "p.yaml", "--token-file", "t.tok", "--json"),
+            WsProbeCli.handshakeArgs("wsprobe", "p.yaml", "t.tok"),
         )
+    }
+
+    @Test
+    fun `fuzz args carry the frame, field, values, optional token, and --json`() {
+        assertEquals(
+            listOf(
+                "wsprobe", "fuzz", "p.yaml",
+                "--frame", "{\"id\":0}", "--field", "id", "--values", "1,2,3",
+                "--json",
+            ),
+            WsProbeCli.fuzzArgs("wsprobe", "p.yaml", "{\"id\":0}", "id", "1,2,3", null),
+        )
+        assertEquals(
+            listOf(
+                "wsprobe", "fuzz", "p.yaml",
+                "--frame", "{\"id\":0}", "--field", "id", "--values", "1,2,3",
+                "--token-file", "t.tok", "--json",
+            ),
+            WsProbeCli.fuzzArgs("wsprobe", "p.yaml", "{\"id\":0}", "id", "1,2,3", "t.tok"),
+        )
+    }
+
+    @Test
+    fun `persist args carry the frame and a scripted settle interval`() {
+        assertEquals(
+            listOf(
+                "wsprobe", "persist", "p.yaml",
+                "--frame", "{\"type\":\"x\"}", "--settle", "15.0", "--json",
+            ),
+            WsProbeCli.persistArgs("wsprobe", "p.yaml", "{\"type\":\"x\"}", 15.0, null),
+        )
+    }
+
+    @Test
+    fun `race args always carry --yes because the probe moves state`() {
+        val argv = WsProbeCli.raceArgs("wsprobe", "p.yaml", "{\"type\":\"claim\"}", 20, "t.tok")
+        assertEquals(
+            listOf(
+                "wsprobe", "race", "p.yaml",
+                "--frame", "{\"type\":\"claim\"}", "--count", "20",
+                "--token-file", "t.tok", "--yes", "--json",
+            ),
+            argv,
+        )
+        assertTrue("--yes" in argv)
     }
 
     @Test
@@ -37,6 +82,26 @@ class WsProbeRunnerTest {
                 "--json",
             ),
             argv,
+        )
+    }
+
+    @Test
+    fun `bridge args carry the frame template and port, no --json`() {
+        val argv = WsProbeCli.bridgeArgs("wsprobe", "p.yaml", "{\"q\":\"§FUZZ§\"}", 8081, null)
+        assertEquals(
+            listOf("wsprobe", "bridge", "p.yaml", "--frame", "{\"q\":\"§FUZZ§\"}", "--port", "8081"),
+            argv,
+        )
+        assertTrue("--json" !in argv)
+    }
+
+    @Test
+    fun `shell command single-quotes the frame value`() {
+        val argv = WsProbeCli.bridgeArgs("wsprobe", "p.yaml", "{\"q\":\"§FUZZ§\"}", 8081, "t.tok")
+        val cmd = WsProbeCli.shellCommand(argv)
+        assertEquals(
+            "wsprobe bridge p.yaml --frame '{\"q\":\"§FUZZ§\"}' --port 8081 --token-file t.tok",
+            cmd,
         )
     }
 
@@ -112,6 +177,62 @@ class WsProbeRunnerTest {
         assertTrue("alice vs bob" in text)
         assertTrue("reply alice:" in text)
         assertTrue("reply bob:" in text)
+        assertTrue("confirmed" !in text.lowercase())
+    }
+
+    @Test
+    fun `renders a sweep payload with the field and each row`() {
+        val json = """
+            {
+              "schema": "wsprobe.sweep/v1", "command": "sweep",
+              "profile": "p", "channel": "default",
+              "field": "id", "distinct_replies": 2,
+              "rows": [
+                {"value": 1001, "frame": {"id": 1001}, "reply": {"type": "note"}},
+                {"value": 1002, "frame": {"id": 1002}, "reply": {"type": "error"}}
+              ]
+            }
+        """.trimIndent()
+        val text = WsProbeRender.render(json)
+        assertTrue("fuzz  profile=p" in text)
+        assertTrue("field=id" in text)
+        assertTrue("distinct_replies=2" in text)
+        assertTrue("1001 ->" in text)
+        assertTrue("confirmed" !in text.lowercase())
+    }
+
+    @Test
+    fun `renders a persist payload with the observed reading`() {
+        val json = """
+            {
+              "schema": "wsprobe.persist/v1", "command": "persist",
+              "profile": "p", "channel": "default",
+              "observed": "still-served-after-revocation", "reading": "insecure-shape",
+              "detail": {"reply_after": {"type": "note"}}
+            }
+        """.trimIndent()
+        val text = WsProbeRender.render(json)
+        assertTrue("persist  profile=p" in text)
+        assertTrue("still-served-after-revocation" in text)
+        assertTrue("insecure-shape" in text)
+        assertTrue("confirmed" !in text.lowercase())
+    }
+
+    @Test
+    fun `renders a race payload with the accepted count`() {
+        val json = """
+            {
+              "schema": "wsprobe.race/v1", "command": "race",
+              "profile": "p", "channel": "default",
+              "count": 20, "accepted": 7,
+              "observed": "multiple-accepted", "reading": "insecure-shape",
+              "detail": {"note": "race window"}
+            }
+        """.trimIndent()
+        val text = WsProbeRender.render(json)
+        assertTrue("race  profile=p" in text)
+        assertTrue("accepted=7/20" in text)
+        assertTrue("multiple-accepted" in text)
         assertTrue("confirmed" !in text.lowercase())
     }
 

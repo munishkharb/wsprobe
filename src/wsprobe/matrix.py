@@ -17,7 +17,7 @@ from typing import Optional
 import websockets
 
 from .connection import ConnectionManager, DialOptions
-from .profile import Profile, TokenLocation
+from .profile import TokenLocation
 
 # Reading tags. Note the deliberate absence of anything like "confirmed".
 CONTROL_PRESENT = "control-present"
@@ -110,7 +110,7 @@ async def run_matrix(
     origin_cases = [("origin-stripped", None, True), ("origin-null", "null", True)]
     origin_cases.append(("origin-sibling", f"https://evil.{host}", True))
     for cand in _bypass_origins(host):
-        origin_cases.append((f"origin-bypass", cand, True))
+        origin_cases.append(("origin-bypass", cand, True))
     accepted_origins = []
     for tag, value, is_set in origin_cases:
         opts = DialOptions(origin=value, origin_set=is_set)
@@ -125,6 +125,35 @@ async def run_matrix(
                 {"origin": value, "upgraded": up},
             )
         )
+
+    # 3b. CSWSH precondition. An accepted untrusted origin is only
+    #     browser-exploitable when the credential is ambient: a cookie the
+    #     victim's browser attaches to a cross-origin handshake on its own. A
+    #     bearer carried in a header, the query, or a subprotocol cannot be set
+    #     by a cross-origin page, so an accepted origin there is a missing
+    #     control but not browser-CSWSH. This row states which case applies;
+    #     the per-origin rows above still report origin validation as the fact
+    #     it is, regardless of auth model.
+    auth = manager.channel.auth
+    ambient = auth.token_location is TokenLocation.cookie
+    loc = auth.token_location.value
+    if not accepted_origins:
+        obs.append(Observation(
+            "cswsh", "origin-validated", CONTROL_PRESENT,
+            {"ambient_auth": ambient, "token_location": loc},
+        ))
+    elif ambient:
+        obs.append(Observation(
+            "cswsh", "cswsh-preconditions-met", INSECURE_SHAPE,
+            {"ambient_auth": True, "token_location": loc, "accepted_origins": accepted_origins},
+        ))
+    else:
+        obs.append(Observation(
+            "cswsh", "origin-not-validated-non-ambient-auth", INCONCLUSIVE,
+            {"ambient_auth": False, "token_location": loc, "accepted_origins": accepted_origins,
+             "note": "untrusted origin accepted, but a cross-origin browser cannot replay a "
+                     f"{loc} credential, so this is not browser-CSWSH"},
+        ))
 
     # 4. No-auth control frames: open without authenticating, send the
     #    profile's control frame, and see whether it is acted on.
