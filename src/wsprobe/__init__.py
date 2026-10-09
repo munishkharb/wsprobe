@@ -17,7 +17,7 @@ from .profile import Profile, dump_profile, load_profile
 from .replay import ReplayResult, replay, replay_capture
 from .schema import profile_schema, write_schema
 
-__version__ = "0.1.0"
+__version__ = "0.1.1"
 
 __all__ = [
     "Analysis",

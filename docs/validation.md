@@ -6,14 +6,14 @@ authorization, and stays quiet on a server that does the right thing.
 ## Release gate
 
 The gate that blocks a v0.1.0 release is the deterministic suite against the
-**synthetic fixture** (spec §8) plus the **clean control**: every seeded bug
+**synthetic fixture** plus the **clean control**: every seeded bug
 caught, and **zero** findings on the correct server. `uv run pytest -q` →
 **35 passed**. The gate is code, not a camera; the video is a showcase, not the
 gate.
 
 Fixture coverage mapped to the spec's 22-item attack catalog. The fixture seeds
 one clear bug per class for the classes wsprobe tests *directly*; the assist-only
-and later-phase classes are out of the fixture's scope by design (see spec §2).
+and later-phase classes are out of the fixture's scope by design.
 
 | Catalog item | In fixture? | wsprobe check | Caught |
 |---|---|---|---|
@@ -23,7 +23,7 @@ and later-phase classes are out of the fixture's scope by design (see spec §2).
 | 7 Missing message-level authz | ✅ | matrix no-auth-control-frame | ✅ |
 | 9 Message-field injection to a sink | ✅ | fan-out (XSS) + SQLi sink via bridge | ✅ |
 | 16 Replay / missing idempotency | ✅ | replay | ✅ |
-| 3,4,5,8,10-15,17-22 | out of fixture scope | assist-only or later-phase (spec §2/§11) | n/a |
+| 3,4,5,8,10-15,17-22 | out of fixture scope | assist-only or later-phase | n/a |
 
 Zero false positives: the clean control (T-CTL) produces no insecure-shape
 observation on any of these checks.
