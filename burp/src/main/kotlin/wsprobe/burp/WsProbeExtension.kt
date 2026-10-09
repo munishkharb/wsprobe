@@ -23,6 +23,7 @@ import java.nio.file.Files
 import java.nio.file.Path
 import java.nio.file.Paths
 import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.ConcurrentLinkedQueue
 import javax.swing.JComponent
 import javax.swing.JFileChooser
 import javax.swing.JMenu
@@ -57,13 +58,13 @@ class WsProbeExtension : BurpExtension {
     // operator runs wsprobe against "the profile the companion drafted".
     @Volatile private var lastDraftPath: Path? = null
 
-    // The results tab: rendered output of each Run wsprobe invocation.
-    private val results = JTextArea().apply {
-        isEditable = false
-        lineWrap = false
-        font = Font(Font.MONOSPACED, Font.PLAIN, 12)
-        text = "wsprobe results\n\nRun wsprobe from the wsprobe menu to drive the CLI against a profile.\n"
-    }
+    // Every text frame observed, in wsprobe's NDJSON capture shape, so the
+    // operator can export Burp-seen traffic and drive the offline capabilities
+    // (analyze, replay) from it - the history-import path.
+    private val capturedFrames = ConcurrentLinkedQueue<CapturedFrame>()
+
+    // The suite tab: a frame table, a Detail/Results split, and a toolbar.
+    private lateinit var tab: WsProbeTab
 
     private val processRunner = ProcessRunner()
 
@@ -71,23 +72,38 @@ class WsProbeExtension : BurpExtension {
         this.api = api
         api.extension().setName("wsprobe companion")
 
+        val console = WsProbeConsole(api.userInterface().createWebSocketMessageEditor())
+        tab = WsProbeTab(
+            runVerbs = listOf("handshake", "diff", "fuzz", "persist", "race"),
+            detailEditor = api.userInterface().createWebSocketMessageEditor(
+                burp.api.montoya.ui.editor.EditorOptions.READ_ONLY,
+            ),
+            consoleComponent = console.component,
+            onDraftProfile = ::writeDraft,
+            onExportCapture = ::writeCapture,
+            onRun = ::runVerb,
+        )
+        api.userInterface().registerSuiteTab("wsprobe", tab.component)
         api.proxy().registerWebSocketCreationHandler(CreationHandler())
-        api.userInterface().registerSuiteTab("wsprobe", resultsComponent())
         registerMenu()
 
         api.logging().logToOutput(
-            "wsprobe companion loaded. Proxy WebSocket traffic, then " +
-                "wsprobe > Write draft profile.yaml to emit a profile. " +
-                "Run wsprobe > Handshake matrix / Two-account diff drives the CLI " +
-                "and shows the observations in the wsprobe tab. " +
-                "Keepalive frames are marked gray with a 'wsprobe: heartbeat' note."
+            "wsprobe companion loaded. Proxy WebSocket traffic; observed frames fill the " +
+                "wsprobe tab's table. wsprobe > Write draft profile.yaml emits a profile; " +
+                "Write capture.ndjson exports the frames. Run a verb from the tab toolbar " +
+                "or the Run wsprobe menu (handshake / diff / fuzz / persist / race); output " +
+                "lands in the tab's Results pane. Keepalive frames are marked in the history."
         )
     }
 
-    private fun resultsComponent(): JComponent {
-        val panel = JPanel(BorderLayout())
-        panel.add(JScrollPane(results), BorderLayout.CENTER)
-        return panel
+    private fun runVerb(verb: String) {
+        when (verb) {
+            "handshake" -> runHandshake()
+            "diff" -> runDiff()
+            "fuzz" -> runFuzz()
+            "persist" -> runPersist()
+            "race" -> runRace()
+        }
     }
 
     // ---- handshake + frame observation -------------------------------------
@@ -103,13 +119,25 @@ class WsProbeExtension : BurpExtension {
             val builder = builderFor(key, fullUrl)
             builder.observeHandshake(fullUrl, origin, subprotocol)
 
-            creation.proxyWebSocket().registerProxyMessageHandler(MessageHandler(builder))
+            creation.proxyWebSocket().registerProxyMessageHandler(MessageHandler(builder, key))
         }
     }
 
-    private inner class MessageHandler(private val builder: DraftBuilder) : ProxyMessageHandler {
+    private inner class MessageHandler(
+        private val builder: DraftBuilder,
+        private val channel: String,
+    ) : ProxyMessageHandler {
         override fun handleTextMessageReceived(message: InterceptedTextMessage): TextMessageReceivedAction {
             val isHeartbeat = try { builder.observeText(message.payload()) } catch (_: Exception) { false }
+            // Burp fires this for every frame in both directions (it receives
+            // each one before forwarding), so recording only here - keyed on the
+            // real direction - logs each frame exactly once.
+            val dir = if (message.direction() == burp.api.montoya.websocket.Direction.CLIENT_TO_SERVER) {
+                CaptureCodec.SEND
+            } else {
+                CaptureCodec.RECV
+            }
+            recordFrame(dir, message.payload())
             if (isHeartbeat) {
                 // Heartbeat filter: mark keepalives so they can be filtered in
                 // the WebSocket history. Montoya has no "hide from history" API,
@@ -134,11 +162,31 @@ class WsProbeExtension : BurpExtension {
         // wire and drafts from received traffic, so these pass straight through
         // unaltered. Implemented because ProxyMessageHandler requires them.
         override fun handleTextMessageToBeSent(message: InterceptedTextMessage): TextMessageToBeSentAction {
+            // Recording happens once in handleTextMessageReceived (keyed on the
+            // message direction), so nothing is logged here - otherwise every
+            // frame would appear twice (received, then forwarded).
             return TextMessageToBeSentAction.continueWith(message)
         }
 
         override fun handleBinaryMessageToBeSent(message: InterceptedBinaryMessage): BinaryMessageToBeSentAction {
             return BinaryMessageToBeSentAction.continueWith(message)
+        }
+
+        /** Record one text frame for the capture export. Best-effort: a parse or
+         *  enqueue failure never disturbs the proxied traffic. */
+        private fun recordFrame(direction: String, payload: String) {
+            try {
+                val ts = System.currentTimeMillis() / 1000.0
+                val parsed = CaptureCodec.parseFrame(payload)
+                // Classify heartbeats from the frame itself so the filter works
+                // in both directions, not just on received frames.
+                val hb = CaptureCodec.isHeartbeat(parsed)
+                val f = CapturedFrame(ts, direction, channel, parsed, hb)
+                capturedFrames.add(f)
+                tab.addFrame(f, hb)
+            } catch (_: Exception) {
+                // Capture is a convenience; never let it affect the wire.
+            }
         }
     }
 
@@ -151,16 +199,23 @@ class WsProbeExtension : BurpExtension {
         val menu = JMenu("wsprobe")
 
         menu.add(item("Write draft profile.yaml") { writeDraft() })
+        menu.add(item("Write capture.ndjson") { writeCapture() })
         menu.add(item("Reset observed traffic") {
             builders.clear()
             synchronized(channelOrder) { channelOrder.clear() }
+            capturedFrames.clear()
+            tab.clearFrames()
             api.logging().logToOutput("wsprobe companion: observed traffic reset.")
         })
 
         menu.addSeparator()
         val run = JMenu("Run wsprobe")
-        run.add(item("Handshake matrix") { runMatrix() })
+        run.add(item("Handshake") { runHandshake() })
         run.add(item("Two-account diff") { runDiff() })
+        run.add(item("Field sweep (fuzz)") { runFuzz() })
+        run.add(item("Session persistence (persist)") { runPersist() })
+        run.add(item("Race (moves real state)") { runRace() })
+        run.add(item("Bridge to HTTP tools (show command)") { runBridgeCommand() })
         menu.add(run)
 
         menu.addSeparator()
@@ -234,6 +289,42 @@ class WsProbeExtension : BurpExtension {
         }
     }
 
+    private fun writeCapture() {
+        val frames = capturedFrames.toList()
+        if (frames.isEmpty()) {
+            JOptionPane.showMessageDialog(
+                null,
+                "No WebSocket frames observed yet. Proxy a WebSocket session first, then try again.",
+                "wsprobe companion",
+                JOptionPane.INFORMATION_MESSAGE,
+            )
+            return
+        }
+        val chooser = JFileChooser().apply {
+            dialogTitle = "Save wsprobe capture (NDJSON)"
+            selectedFile = Paths.get(System.getProperty("user.home"), "capture.ndjson").toFile()
+        }
+        if (chooser.showSaveDialog(null) != JFileChooser.APPROVE_OPTION) return
+        val out = chooser.selectedFile.toPath()
+        try {
+            Files.writeString(out, CaptureCodec.toNdjson(frames))
+            api.logging().logToOutput("wsprobe companion: wrote $out (${frames.size} frame(s)).")
+            JOptionPane.showMessageDialog(
+                null,
+                "Wrote ${frames.size} frame(s) to:\n$out\n\n" +
+                    "Drive it with: wsprobe analyze $out --emit-profile profile.yaml\n" +
+                    "Credential-looking fields are redacted, but treat captures as sensitive.",
+                "wsprobe companion",
+                JOptionPane.INFORMATION_MESSAGE,
+            )
+        } catch (e: Exception) {
+            api.logging().logToError("wsprobe companion: failed to write capture: ${e.message}")
+            JOptionPane.showMessageDialog(
+                null, "Failed to write capture: ${e.message}", "wsprobe companion", JOptionPane.ERROR_MESSAGE,
+            )
+        }
+    }
+
     // ---- invocation tier: run the wsprobe CLI ------------------------------
 
     private fun configureBinary() {
@@ -271,13 +362,114 @@ class WsProbeExtension : BurpExtension {
         return binary
     }
 
-    private fun runMatrix() {
+    private fun runHandshake() {
         val binary = resolveBinaryOrWarn() ?: return
         val profile = chooseProfile() ?: return
         // An optional valid token, used by the Origin and cross-user rows.
         val token = chooseTokenFile("Select a valid token file (optional; Cancel to skip)")
-        val argv = WsProbeCli.matrixArgs(binary, profile.toString(), token?.toString())
-        runAsync("matrix", argv)
+        val argv = WsProbeCli.handshakeArgs(binary, profile.toString(), token?.toString())
+        runAsync("handshake", argv)
+    }
+
+    private fun runFuzz() {
+        val binary = resolveBinaryOrWarn() ?: return
+        val profile = chooseProfile() ?: return
+        val frame = promptNonEmpty("Base frame as JSON:", "{\"type\":\"getRecord\",\"id\":0}") ?: return
+        val field = promptNonEmpty("Field to drive over the value list:", "id") ?: return
+        val values = promptNonEmpty("Comma-separated values to try:", "1001,1002,1003") ?: return
+        val token = chooseTokenFile("Select a token file (optional; Cancel to skip)")
+        val argv = WsProbeCli.fuzzArgs(binary, profile.toString(), frame, field, values, token?.toString())
+        runAsync("fuzz", argv)
+    }
+
+    private fun runPersist() {
+        val binary = resolveBinaryOrWarn() ?: return
+        val profile = chooseProfile() ?: return
+        val frame = promptNonEmpty("Privileged frame to re-send after the pause, as JSON:", "{\"type\":\"read_note\",\"owner\":\"<id>\"}") ?: return
+        val settleInput = promptNonEmpty(
+            "Seconds to wait for you to revoke the session out of band\n(logout / reset / role drop / token expiry):",
+            "15",
+        ) ?: return
+        val settle = settleInput.toDoubleOrNull()
+        if (settle == null || settle < 0) {
+            JOptionPane.showMessageDialog(null, "Enter a non-negative number of seconds.", "wsprobe companion", JOptionPane.ERROR_MESSAGE)
+            return
+        }
+        val token = chooseTokenFile("Select a valid token file (optional; Cancel to skip)")
+        val argv = WsProbeCli.persistArgs(binary, profile.toString(), frame, settle, token?.toString())
+        runAsync("persist", argv)
+    }
+
+    private fun runRace() {
+        val binary = resolveBinaryOrWarn() ?: return
+        val profile = chooseProfile() ?: return
+        val frame = promptNonEmpty("State-changing frame to fire concurrently, as JSON:", "{\"type\":\"claim\",\"item\":\"coupon\"}") ?: return
+        val countInput = promptNonEmpty("How many identical frames to fire at once:", "20") ?: return
+        val count = countInput.toIntOrNull()
+        if (count == null || count < 2) {
+            JOptionPane.showMessageDialog(null, "Enter a whole number of at least 2.", "wsprobe companion", JOptionPane.ERROR_MESSAGE)
+            return
+        }
+        val confirm = JOptionPane.showConfirmDialog(
+            null,
+            "race will fire $count copies of this frame on the target.\n" +
+                "This MOVES REAL STATE (a claim, payout or transfer may apply more than once).\n\n" +
+                "Fire against a system you are authorized to test?",
+            "wsprobe companion: race moves real state",
+            JOptionPane.YES_NO_OPTION,
+            JOptionPane.WARNING_MESSAGE,
+        )
+        if (confirm != JOptionPane.YES_OPTION) {
+            appendResult("race cancelled; nothing sent.\n")
+            return
+        }
+        val token = chooseTokenFile("Select a valid token file (optional; Cancel to skip)")
+        val argv = WsProbeCli.raceArgs(binary, profile.toString(), frame, count, token?.toString())
+        runAsync("race", argv)
+    }
+
+    private fun runBridgeCommand() {
+        val binary = resolveBinaryOrWarn() ?: return
+        val profile = chooseProfile() ?: return
+        val frame = promptNonEmpty(
+            "Frame template as JSON, with a §FUZZ§ placeholder where the HTTP tool injects:",
+            "{\"type\":\"search\",\"q\":\"§FUZZ§\"}",
+        ) ?: return
+        val portInput = promptNonEmpty("Loopback port for the bridge:", "8081") ?: return
+        val port = portInput.toIntOrNull()
+        if (port == null || port !in 1..65535) {
+            JOptionPane.showMessageDialog(null, "Enter a port between 1 and 65535.", "wsprobe companion", JOptionPane.ERROR_MESSAGE)
+            return
+        }
+        val token = chooseTokenFile("Select a valid token file (optional; Cancel to skip)")
+        val argv = WsProbeCli.bridgeArgs(binary, profile.toString(), frame, port, token?.toString())
+        val command = WsProbeCli.shellCommand(argv)
+
+        // The bridge is a long-running server, so it is not spawned here. Show
+        // the exact command to run in a terminal, then point an HTTP tool at the
+        // loopback port. The command also lands in the results tab and the clipboard.
+        appendResult(
+            "bridge (run this in a terminal, then point sqlmap / Burp Intruder at http://127.0.0.1:$port):\n\n$command\n",
+        )
+        try {
+            java.awt.Toolkit.getDefaultToolkit().systemClipboard
+                .setContents(java.awt.datatransfer.StringSelection(command), null)
+        } catch (_: Exception) {
+            // Clipboard is best-effort; the command is shown in the tab regardless.
+        }
+        JOptionPane.showMessageDialog(
+            null,
+            "The bridge is a long-running server, so run it yourself:\n\n$command\n\n" +
+                "Then point your HTTP tool (sqlmap, Burp Intruder) at http://127.0.0.1:$port.\n" +
+                "The command has been copied to your clipboard and written to the wsprobe tab.",
+            "wsprobe companion: bridge",
+            JOptionPane.INFORMATION_MESSAGE,
+        )
+    }
+
+    private fun promptNonEmpty(message: String, seed: String): String? {
+        val input = JOptionPane.showInputDialog(null, message, seed)?.trim() ?: return null
+        return input.ifEmpty { null }
     }
 
     private fun runDiff() {
@@ -339,10 +531,7 @@ class WsProbeExtension : BurpExtension {
     }
 
     private fun appendResult(text: String) {
-        SwingUtilities.invokeLater {
-            results.append("\n" + "-".repeat(72) + "\n" + text)
-            results.caretPosition = results.document.length
-        }
+        tab.appendResult(text)
     }
 
     // ---- helpers -----------------------------------------------------------
