@@ -41,11 +41,13 @@ channels:
 YAML
 
 p "uv run wsprobe validate /tmp/wsprobe-demo.yaml"
-p "uv run wsprobe matrix /tmp/wsprobe-demo.yaml --expected-identity alice --foreign-identity bob"
+p "uv run wsprobe handshake /tmp/wsprobe-demo.yaml --expected-identity alice --foreign-identity bob"
 p "printf '%s' \"\$(uv run python -c 'from tests.fixture import mint_token;print(mint_token(\"alice\"))')\" > /tmp/a.tok"
 p "printf '%s' \"\$(uv run python -c 'from tests.fixture import mint_token;print(mint_token(\"bob\"))')\" > /tmp/b.tok"
 p "uv run wsprobe diff /tmp/wsprobe-demo.yaml --frame '{\"type\":\"read_note\",\"owner\":\"bob\"}' --token-a /tmp/a.tok --token-b /tmp/b.tok --name-a alice --name-b bob"
-p "uv run wsprobe sweep /tmp/wsprobe-demo.yaml --frame '{\"type\":\"read_note\"}' --field owner --values alice,bob --token-file /tmp/a.tok"
+p "uv run wsprobe fuzz /tmp/wsprobe-demo.yaml --frame '{\"type\":\"read_note\"}' --field owner --values alice,bob --token-file /tmp/a.tok"
+p "uv run wsprobe persist /tmp/wsprobe-demo.yaml --frame '{\"type\":\"read_note\",\"owner\":\"bob\"}' --settle 2 --token-file /tmp/a.tok"
+p "uv run wsprobe race /tmp/wsprobe-demo.yaml --frame '{\"type\":\"claim\",\"item\":\"coupon\"}' --count 10 --token-file /tmp/a.tok --yes"
 
-printf '\n\033[1;36m Observations, never verdicts. Reproduce before you report. \033[0m\n'
+printf '\n\033[1;36m wsprobe reports what the server did; you reproduce and confirm. \033[0m\n'
 sleep 2.5

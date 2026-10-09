@@ -17,12 +17,13 @@ import typer
 
 from . import analyzer, authz, jsonout, matrix
 from .connection import ConnectionManager
+from .race import DEFAULT_CEILING, DEFAULT_COUNT, RaceCapExceeded, run_race
 from .replay import replay_capture as _replay_capture
 from .profile import load_profile
 from .repl import run_repl
 from .schema import write_schema
 
-app = typer.Typer(add_completion=False, help="WebSocket security review toolkit. Authorized use only.")
+app = typer.Typer(add_completion=False, help="A WebSocket pentesting toolkit. Authorized use only.")
 
 
 def _read_token(path: Optional[str]) -> Optional[str]:
@@ -48,22 +49,22 @@ def _manager(
     )
 
 
-@app.command()
+@app.command(rich_help_panel="Setup")
 def schema(out: str = typer.Option("profile.schema.json", help="Where to write the JSON schema.")) -> None:
-    """Export the profile JSON schema as a build artifact."""
+    """Write the profile JSON schema to a file, for editor autocomplete and CI checks."""
     path = write_schema(out)
     typer.echo(f"wrote {path}")
 
 
-@app.command()
+@app.command(rich_help_panel="Setup")
 def validate(profile: str, channel: Optional[str] = None) -> None:
-    """Load and validate a profile."""
+    """Check that a profile file loads and is well-formed before you test with it."""
     p = load_profile(profile)
     typer.echo(f"ok: profile {p.name!r} with {len(p.channels)} channel(s): {[c.name for c in p.channels]}")
 
 
-@app.command("matrix")
-def matrix_cmd(
+@app.command("handshake", rich_help_panel="Handshake")
+def handshake_cmd(
     profile: str,
     channel: Optional[str] = None,
     token_file: Optional[str] = typer.Option(None, help="A valid token, for the Origin and cross-user rows."),
@@ -75,7 +76,11 @@ def matrix_cmd(
     as_json: bool = typer.Option(False, "--json", help="Emit observations as JSON."),
     sarif: Optional[str] = typer.Option(None, "--sarif", help="Also write insecure-shape observations as SARIF 2.1.0 to this path."),
 ) -> None:
-    """Run the handshake security matrix and report observations."""
+    """Test handshake authentication: try to connect with no token, an expired token,
+    another user's token, and a forged Origin, and report what the server allowed.
+
+    Example: wsprobe handshake profile.yaml --token-file valid.tok
+    """
     p = load_profile(profile)
     mgr = _manager(profile, channel, token_file, "matrix", tls_verify=not no_tls_verify)
     obs = asyncio.run(
@@ -97,26 +102,35 @@ def matrix_cmd(
         typer.echo(o.line())
 
 
-@app.command()
+# Back-compat alias: `matrix` was the verb through v0.1.x. Hidden, still works.
+app.command("matrix", hidden=True)(handshake_cmd)
+
+
+@app.command(rich_help_panel="Session")
 def repl(
     profile: str,
     channel: Optional[str] = None,
     token_file: Optional[str] = None,
     capture: Optional[str] = typer.Option(None, help="Write an NDJSON capture of the session."),
 ) -> None:
-    """Interactive authenticated client: one frame per line, correlated reply."""
+    """Open an interactive authenticated client: type one JSON frame per line and see
+    the correlated reply. The hands-on way to explore an app's message language."""
     mgr = _manager(profile, channel, token_file, "repl", capture=capture)
     asyncio.run(run_repl(mgr))
 
 
-@app.command()
+@app.command(rich_help_panel="Recon")
 def analyze(
     captures: list[str] = typer.Argument(..., help="One or more capture files (NDJSON or a proxy export)."),
     emit_profile: Optional[str] = typer.Option(None, help="Write a draft profile.yaml from the capture."),
     url: str = typer.Option("wss://ws.example.test/socket", help="Handshake URL stub for the draft profile."),
     as_json: bool = typer.Option(False, "--json", help="Emit the analysis as JSON."),
 ) -> None:
-    """Inventory message types, correlate replies, and optionally emit a draft profile."""
+    """Read a captured session and inventory its message types, then optionally write a
+    starter profile.yaml. Run this first to learn what an app's traffic looks like.
+
+    Example: wsprobe analyze capture.ndjson --emit-profile profile.yaml
+    """
     records: list = []
     from .capture import read_capture
 
@@ -139,7 +153,7 @@ def analyze(
         typer.echo(f"wrote draft profile {emit_profile}")
 
 
-@app.command()
+@app.command(rich_help_panel="Authorization")
 def diff(
     profile: str,
     frame: str = typer.Option(..., help="The frame to send from both identities, as JSON."),
@@ -151,7 +165,11 @@ def diff(
     as_json: bool = typer.Option(False, "--json", help="Emit the diff observation as JSON."),
     sarif: Optional[str] = typer.Option(None, "--sarif", help="Also write a same-across-identities reading as SARIF 2.1.0 to this path."),
 ) -> None:
-    """Two-account authorization diff: same frame from two identities, diff the replies."""
+    """Send the same frame as two different users and compare the replies, to find
+    per-message authorization gaps (a low-privilege user getting a privileged reply).
+
+    Example: wsprobe diff profile.yaml --frame '{"type":"getUser","id":1}' --token-a low.tok --token-b admin.tok
+    """
     p = load_profile(profile)
     mgr_a = ConnectionManager(p, channel=channel, token=_read_token(token_a), identity=name_a)
     mgr_b = ConnectionManager(p, channel=channel, token=_read_token(token_b), identity=name_b)
@@ -167,19 +185,23 @@ def diff(
     typer.echo(f"  {name_b} reply: {json.dumps(result.reply_b)}")
 
 
-@app.command()
-def sweep(
+@app.command("fuzz", rich_help_panel="Authorization")
+def fuzz_cmd(
     profile: str,
     frame: str = typer.Option(..., help="Base frame as JSON."),
-    field: str = typer.Option(..., help="The field to sweep."),
-    values: str = typer.Option(..., help="Comma-separated values."),
+    field: str = typer.Option(..., help="The field to change on each send."),
+    values: str = typer.Option(..., help="Comma-separated values to try in that field."),
     token_file: Optional[str] = None,
     channel: Optional[str] = None,
-    as_json: bool = typer.Option(False, "--json", help="Emit the sweep observations as JSON."),
+    as_json: bool = typer.Option(False, "--json", help="Emit the observations as JSON."),
 ) -> None:
-    """Field sweep: drive one field over a list and show correlated replies."""
+    """Send one frame repeatedly, changing a single field across a list of values, and
+    show each reply. Use it for IDOR-style id walking or small value lists.
+
+    Example: wsprobe fuzz profile.yaml --frame '{"type":"getDoc","id":0}' --field id --values 1,2,3,4
+    """
     p = load_profile(profile)
-    mgr = _manager(profile, channel, token_file, "sweep")
+    mgr = _manager(profile, channel, token_file, "fuzz")
     vals: list = [_maybe_int(v) for v in values.split(",")]
     result = asyncio.run(authz.field_sweep(mgr, json.loads(frame), field, vals))
     if as_json:
@@ -191,7 +213,94 @@ def sweep(
         typer.echo(f"  {field}={row.value!r} -> {json.dumps(row.reply)}")
 
 
-@app.command()
+# Back-compat alias: `sweep` was the verb through v0.1.x. Hidden, still works.
+app.command("sweep", hidden=True)(fuzz_cmd)
+
+
+@app.command(rich_help_panel="Session")
+def persist(
+    profile: str,
+    frame: str = typer.Option(..., help="A privileged frame to re-send after revocation, as JSON."),
+    token_file: Optional[str] = None,
+    channel: Optional[str] = None,
+    settle: float = typer.Option(0.0, help="Seconds to wait for an out-of-band revocation (scripted mode)."),
+    prompt: bool = typer.Option(False, "--prompt", help="Pause for you to revoke the session by hand, then press Enter."),
+    as_json: bool = typer.Option(False, "--json", help="Emit the observation as JSON."),
+) -> None:
+    """Hold an authenticated socket open across a session revocation (logout,
+    password reset, token expiry, role change) and report whether the same
+    privileged frame is still served afterward. Revoke out of band during the
+    pause with --prompt, or wait a scripted interval with --settle.
+
+    Example: wsprobe persist profile.yaml --frame '{"type":"read_note","owner":"bob"}' --prompt
+    """
+    from .persist import run_persist
+
+    p = load_profile(profile)
+    mgr = _manager(profile, channel, token_file, "persist")
+    result = asyncio.run(run_persist(mgr, json.loads(frame), settle=settle, prompt=prompt))
+    if as_json:
+        typer.echo(jsonout.dumps({
+            "schema": "wsprobe.persist/v1",
+            "command": "persist",
+            "profile": p.name,
+            "channel": mgr.channel.name,
+            "observed": result.observed,
+            "reading": result.reading,
+            "detail": result.detail,
+        }))
+        return
+    typer.echo(result.line())
+
+
+@app.command(rich_help_panel="Concurrency")
+def race(
+    profile: str,
+    frame: str = typer.Option(..., help="The state-changing frame to fire concurrently, as JSON."),
+    count: int = typer.Option(DEFAULT_COUNT, help="How many identical frames to fire at once."),
+    max_count: int = typer.Option(DEFAULT_CEILING, "--max", help="Safety ceiling; --count may not exceed it."),
+    token_file: Optional[str] = None,
+    channel: Optional[str] = None,
+    yes: bool = typer.Option(False, "--yes", help="Confirm firing: this MOVES REAL STATE on the target."),
+    as_json: bool = typer.Option(False, "--json", help="Emit the observation as JSON."),
+) -> None:
+    """Fire N identical frames at once, on N sockets held at a barrier, and
+    report how many the server accepted. Finds the check-then-commit window on a
+    once-only action (a coupon or payout claimed twice).
+
+    This MOVES REAL STATE on the target, so it is capped and will not fire
+    without --yes.
+
+    Example: wsprobe race profile.yaml --frame '{"type":"claim","item":"coupon"}' --count 20 --yes
+    """
+    p = load_profile(profile)
+    if not yes:
+        typer.echo(f"race would fire {count} copies of this frame against {p.name!r}: this MOVES REAL STATE on the target.")
+        typer.echo("Nothing sent. Re-run with --yes to fire.")
+        raise typer.Exit(code=1)
+    mgr = _manager(profile, channel, token_file, "race")
+    try:
+        result = asyncio.run(run_race(mgr, json.loads(frame), count, ceiling=max_count))
+    except RaceCapExceeded as exc:
+        typer.echo(f"refused: {exc}")
+        raise typer.Exit(code=2)
+    if as_json:
+        typer.echo(jsonout.dumps({
+            "schema": "wsprobe.race/v1",
+            "command": "race",
+            "profile": p.name,
+            "channel": mgr.channel.name,
+            "count": result.count,
+            "accepted": result.accepted,
+            "observed": result.observed,
+            "reading": result.reading,
+            "detail": result.detail,
+        }))
+        return
+    typer.echo(result.line())
+
+
+@app.command(rich_help_panel="Session")
 def replay(
     profile: str,
     capture: str,
@@ -200,7 +309,8 @@ def replay(
     mutate_field: Optional[str] = None,
     mutate_value: Optional[str] = None,
 ) -> None:
-    """Re-drive a captured outbound sequence on a fresh authenticated socket."""
+    """Re-send a previously captured sequence of frames on a fresh authenticated socket,
+    optionally changing one field. Use it to retry a flow or re-fire a state-changing frame."""
     mgr = _manager(profile, channel, token_file, "replay")
     result = asyncio.run(
         _replay_capture(
@@ -215,7 +325,7 @@ def replay(
         typer.echo(f"  sent {json.dumps(step.sent)} -> {json.dumps(step.reply)}")
 
 
-@app.command()
+@app.command(rich_help_panel="Injection")
 def bridge(
     profile: str,
     frame: str = typer.Option(..., help="Frame template as JSON, with a §FUZZ§ placeholder for the injected value."),
@@ -224,8 +334,12 @@ def bridge(
     port: int = typer.Option(8081, help="Loopback port to listen on."),
     timeout: float = typer.Option(5.0, help="Per-frame reply timeout in seconds."),
 ) -> None:
-    """Run a loopback HTTP-to-WebSocket bridge so an HTTP tool can drive one
-    frame field. Binds 127.0.0.1 only; paces one frame at a time."""
+    """Expose one frame field as a local HTTP endpoint so an HTTP tool (sqlmap, Burp
+    Intruder) can drive it. wsprobe owns the authenticated socket and re-sends each
+    value as a frame. Binds 127.0.0.1 only; paces one frame at a time.
+
+    Example: wsprobe bridge profile.yaml --frame '{"type":"search","q":"§FUZZ§"}'
+    """
     from .bridge import serve_bridge
 
     mgr = _manager(profile, channel, token_file, "bridge")
