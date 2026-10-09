@@ -18,19 +18,25 @@ flowchart LR
   conn --> replay["Replay"]
   conn --> bridge["HTTP-to-WS bridge"]
   bridge --> ext["sqlmap / ffuf"]
-  hs --> v{{"Deterministic verdict:<br/>close code or reply diff,<br/>never a model's guess"}}
+  hs --> v{{"Deterministic verdict:<br/>close code or reply diff"}}
   diff --> v
   sweep --> v
   replay --> v
   ext --> v
 ```
 
-![wsprobe demo](docs/media/demo.gif)
+![wsprobe against OWASP DVWS](docs/media/wsprobe-demo.gif)
 
-The demo above runs against the shipped synthetic fixture; reproduce it with
-`bash scripts/demo.sh`.
+Live SQL injection carried through a WebSocket frame against OWASP DVWS: sqlmap
+drives the frame field through the bridge while wsprobe owns the handshake and
+token refresh. DVWS is a separate MIT project you build from its own repo.
 
-The bet is depth over breadth. A WebSocket connection begins as an ordinary
+![wsprobe against the synthetic fixture](docs/media/demo.gif)
+
+This second run is against the shipped synthetic fixture, and reproduces from a
+clean clone with `bash scripts/demo.sh`.
+
+wsprobe goes deep on one protocol. A WebSocket connection begins as an ordinary
 HTTP GET and, at `101 Switching Protocols`, stops being HTTP and becomes a raw
 two-way socket for the life of the app. The one checkpoint HTTP walks on every
 request is walked exactly once here, at the upgrade, so the interesting defects
@@ -52,6 +58,31 @@ you write a profile for a system you are permitted to test.
 ```
 uv venv --python 3.12
 uv pip install -e '.[dev]'
+```
+
+## Quickstart
+
+```
+# 1. Draft a profile from a capture (a proxy export, or wsprobe's own capture)
+wsprobe analyze capture.ndjson --emit-profile target.yaml
+#    then edit target.yaml: the handshake URL, token location, message map, probes
+
+# 2. Test the handshake with no session
+wsprobe matrix target.yaml
+
+# 3. Send the same frame as two identities and diff the replies (BOLA/IDOR)
+wsprobe diff target.yaml --frame '{"type":"getRecord","id":1002}' \
+  --token-a a.tok --token-b b.tok
+
+# 4. Walk one field over a list of values (IDOR, enumeration)
+wsprobe sweep target.yaml --frame '{"type":"getRecord","id":0}' \
+  --field id --values 1001,1002,1003
+
+# 5. Re-drive a captured state-changing sequence (missing nonce or idempotency)
+wsprobe replay target.yaml session.ndjson
+
+# 6. Reach a frame field with an HTTP injection tool
+wsprobe bridge target.yaml --frame '{"q":"§FUZZ§"}'   # then point sqlmap at 127.0.0.1:8081
 ```
 
 ## The profile
@@ -83,17 +114,17 @@ holds it, `ttl` caches until an age limit.
 One profile adapts the generic engine to a specific target:
 
 - **Framing** (`handshake.framing`): `json`, `text` (raw strings), or `socketio`
-  (Socket.IO/Engine.IO v4 — the connect handshake and ping/pong are handled for
-  you). Length-prefixed and binary are stubs for a later phase.
+  (Socket.IO/Engine.IO v4, where the connect handshake and ping/pong are handled
+  for you). Length-prefixed and binary are stubs for a later phase.
 - **Correlation** (`messages.correlation`): `echo` (the server echoes a
-  correlation id), `ordered` (the next reply is the answer — most real servers),
-  or `ack` (Socket.IO acknowledgements).
+  correlation id), `ordered` (the next reply is the answer, which fits most real
+  servers), or `ack` (Socket.IO acknowledgements).
 - **Token location** (`auth.token_location`): `query`, `header`, `subprotocol`,
   `cookie`, or `login-frame` (with an optional `login_frame` template carrying a
   `§token§` placeholder).
-- **Probes** (`probes`): the target-specific frames the matrix needs — the
+- **Probes** (`probes`): the target-specific frames the matrix needs (the
   unauthenticated control frame, the identity probe, and the URL identity
-  parameter — so nothing target-shaped is baked into the engine.
+  parameter), so nothing target-shaped is baked into the engine.
 
 ## Capabilities
 
@@ -101,13 +132,13 @@ One profile adapts the generic engine to a specific target:
 |------|--------------|
 | `wsprobe schema` | Export the profile JSON schema as a build artifact. |
 | `wsprobe validate` | Load and validate a profile. |
-| `wsprobe matrix` | Handshake security matrix: unauthenticated upgrade, expired and foreign token, CSWSH/Origin variants, no-auth control frames, cross-user handshake binding. |
-| `wsprobe repl` | Interactive authenticated client: one frame per line, correlated reply, recorded to a capture. |
+| `wsprobe matrix` | Handshake security matrix: unauthenticated upgrade, expired and foreign token (operator-supplied), CSWSH/Origin variants (stripped, `null`, a sibling host, and three allowlist-regex bypass shapes), no-auth control frames, cross-user handshake binding (token identity vs an identity passed in the URL). |
+| `wsprobe repl` | Interactive authenticated client: one frame per line, correlated reply, recorded to a capture. Credential-looking fields and the profile's token field are masked before a frame is written; treat captures as sensitive anyway. |
 | `wsprobe analyze` | Ingest captures, drop heartbeats, inventory message types, correlate request and reply, and emit a draft profile. Opens no socket. |
 | `wsprobe diff` | Two-account authorization diff: the same frame from two identities, replies compared. |
-| `wsprobe sweep` | Field sweep: one field over a list of values on one identity, correlated replies. |
+| `wsprobe sweep` | Field sweep: one field over a list of values on one identity, correlated replies. Paced one request at a time, never a burst. |
 | `wsprobe replay` | Re-drive a captured outbound sequence on a fresh authenticated socket, optional field mutation. |
-| `wsprobe bridge` | Loopback HTTP-to-WebSocket bridge: an HTTP tool (injection tester, fuzzer) drives one frame field via a `§FUZZ§` placeholder while wsprobe owns the handshake and token refresh. Binds `127.0.0.1` only. |
+| `wsprobe bridge` | Loopback HTTP-to-WebSocket bridge: an HTTP tool (injection tester, fuzzer) drives one frame field via a `§FUZZ§` placeholder while wsprobe owns the handshake and token refresh. Binds `127.0.0.1` only and sends one frame at a time. |
 
 ## Observations, not verdicts
 
@@ -124,7 +155,7 @@ The observation verbs default to a human table. Pass `--json` to `matrix`,
 Burp companion panel can parse instead. Each payload carries a `schema` tag of
 the form `wsprobe.<command>/v1` and a `command` field, so a reader dispatches on
 `schema` and trusts the keys under it. The reading vocabulary is the same one the
-tables use, and the word "confirmed" never appears there either. The single
+tables use. The single
 source of the shapes is `src/wsprobe/jsonout.py`.
 
 ```
@@ -160,6 +191,20 @@ at `docs/sample.sarif.json`.
 wsprobe matrix profile.yaml --token-file valid.tok --sarif out.sarif.json
 ```
 
+## Burp companion
+
+For operators who work in Burp, `burp/` ships a Montoya extension and two
+Bambdas that sit alongside the CLI:
+
+- The extension drafts a wsprobe profile from live WebSocket traffic, and can run
+  wsprobe against a target by shelling out to the CLI with `--json` and showing
+  the observations in a Burp tab, so no testing logic is reimplemented in Kotlin.
+- `HideHeartbeatFrames` filters keepalive noise out of the WebSocket history.
+- `FreshTokenFromHandshake` copies a fresh token from the handshake for reuse.
+
+One login can serve both Burp and the CLI. Build the extension with the bundled
+Gradle wrapper (`./gradlew build`); details are in [`burp/README.md`](burp/README.md).
+
 ## The practice lab
 
 `lab/docker-compose.yml` stands up the shipped vulnerable fixture and the clean
@@ -167,7 +212,7 @@ control, plus OWASP Juice Shop, so every capability has something to run against
 locally. OWASP DVWS is a separate MIT project you build from its own repo. Full
 run-throughs with commands and output live in [`docs/validation.md`](docs/validation.md).
 
-## The Python API is the real surface
+## Python API
 
 Every capability runs from a first-class Python API; the CLI verbs are thin
 wrappers over it. The core objects are the profile loader and an async
@@ -187,22 +232,6 @@ async def main():
 asyncio.run(main())
 ```
 
-## Proof: the synthetic vulnerable fixture
-
-A security tool that cannot be demonstrated end to end is a claim, not a tool.
-The repo ships a small synthetic vulnerable WebSocket server (`tests/fixture.py`)
-that seeds one clear bug per class: identity bound only at the handshake and not
-re-checked per frame, an upgrade accepted with no token, no Origin validation, a
-message field reflected to other clients unvalidated, and a state-changing claim
-with no idempotency guard. The test suite drives every capability against it:
-
-```
-uv run pytest -v
-```
-
-The fixture is synthetic and self-contained. No engagement data, no live
-target, no target-specific logic in the tool.
-
 ## Development
 
 Run `pre-commit install` once per clone. On every commit this then runs,
@@ -219,14 +248,9 @@ Both scanners run as already-installed binaries (`brew install betterleaks`;
 opengrep via its install script) rather than something pre-commit builds for
 you. Run everything on demand with `pre-commit run --all-files`.
 
-## Security of the tool itself
+## Releases
 
-Tokens are secrets: never written to a capture file, never printed, redacted
-from any frame the analyzer persists. The sweep and replay engines pace
-requests rather than bursting. TLS verification is on by default, with an
-explicit flag to disable it for a proxied lab. The only verb that opens a
-listening socket is `wsprobe bridge`, and it binds `127.0.0.1` only and paces
-one frame at a time; every other verb opens outbound sockets only.
+Developed privately and published here in releases. What changed in each version, and why, is in [CHANGELOG.md](CHANGELOG.md).
 
 ## License
 
@@ -236,5 +260,4 @@ MIT. See `LICENSE`.
 
 `websockets` (BSD-3-Clause), `pydantic` (MIT), `typer` (MIT), `PyYAML` (MIT),
 `pytest` (MIT), invoked as libraries. Methodology is distilled from public
-sources on WebSocket security testing. This is an original, clean-room
-implementation: no third-party code beyond the declared libraries.
+sources on WebSocket security testing.

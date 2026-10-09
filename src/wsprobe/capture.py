@@ -6,7 +6,7 @@ decoded frame. Secrets are redacted before a frame is written: field names that
 look like credentials are masked by a fixed pattern, and the connection layer
 additionally masks the profile's configured token field (which may be named
 anything, e.g. `jwt` or `sid`). This is best-effort redaction, not an absolute
-guarantee — a token buried in a field that neither the pattern nor the profile
+guarantee: a token buried in a field that neither the pattern nor the profile
 names would still be written, so treat capture files as sensitive.
 """
 
@@ -63,7 +63,7 @@ class CaptureWriter:
     """Append-only NDJSON writer. Used as a context manager.
 
     extra_redact_keys names additional field names to mask beyond the fixed
-    secret-name pattern — the connection layer passes the profile's configured
+    secret-name pattern; the connection layer passes the profile's configured
     token field here, which may be named anything (jwt, sid, access...)."""
 
     def __init__(self, path: str | Path, extra_redact_keys: Iterable[str] = ()) -> None:

@@ -1,8 +1,8 @@
 """wsprobe: a WebSocket security review toolkit.
 
-The Python API is the real surface. The core objects are the profile loader and
-the async connection manager whose request returns a correlated reply; every
-capability is a thin front end over that shared core.
+The core objects are the profile loader and the async connection manager whose
+request returns a correlated reply; every capability is a thin front end over
+that shared core.
 """
 
 from __future__ import annotations
@@ -17,7 +17,7 @@ from .profile import Profile, dump_profile, load_profile
 from .replay import ReplayResult, replay, replay_capture
 from .schema import profile_schema, write_schema
 
-__version__ = "0.1.0"
+__version__ = "0.1.1"
 
 __all__ = [
     "Analysis",
