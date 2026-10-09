@@ -94,6 +94,15 @@ def _resolve_identity(path: str, headers) -> tuple[str | None, str | None]:
         token = query["token"][0]
     elif "authorization" in headers:
         token = headers["authorization"]
+    elif "cookie" in headers:
+        # BUG stays: the token rides a cookie (an ambient credential the
+        # browser attaches cross-origin), and Origin is still never checked, so
+        # this is the classic CSWSH shape.
+        for part in headers["cookie"].split(";"):
+            k, _, v = part.strip().partition("=")
+            if k == "token":
+                token = v
+                break
     if token is not None:
         user = verify_token(token)
         if user is None:
