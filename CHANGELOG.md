@@ -1,9 +1,12 @@
 # Changelog
 
+## v0.2.3 (2026-10-12)
+
+- Documentation: `docs/validation.md` is no longer included. No tool changes.
+
 ## v0.2.2 (2026-10-12)
 
-- README: the lead demo's caption now says what it runs against (the shipped synthetic fixture and a clean control); it had named OWASP DVWS. Both demo recordings were re-rendered without their closing banner.
-- No tool changes.
+- Documentation only: the README demo is labelled as a run against the shipped synthetic fixture and a clean control. No tool changes.
 
 ## v0.2.1 (2026-10-12)
 
@@ -29,4 +32,4 @@
 
 - First release: a WebSocket review toolkit driven by one target profile (`profile.schema.json`).
 - Commands: `matrix` (handshake security checks), `repl`, `analyze`, `diff` (two-account authorization diff), `sweep`, `replay`, and `bridge` (lets an HTTP injection tool drive one frame field).
-- Validated against a seeded lab target and a clean control (`docs/validation.md`).
+- Validated against a seeded lab target and a clean control.
