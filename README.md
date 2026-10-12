@@ -215,8 +215,7 @@ Gradle wrapper (`./gradlew build`); details are in [`burp/README.md`](burp/READM
 
 `lab/docker-compose.yml` stands up the shipped vulnerable fixture and the clean
 control, plus OWASP Juice Shop, so every capability has something to run against
-locally. OWASP DVWS is a separate MIT project you build from its own repo. Full
-run-throughs with commands and output live in [`docs/validation.md`](docs/validation.md).
+locally. OWASP DVWS is a separate MIT project you build from its own repo.
 
 ## Python API
 

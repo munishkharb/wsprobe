@@ -4,10 +4,9 @@ A small Burp Suite extension that turns WebSocket traffic Burp already proxies
 into a draft `profile.yaml` for the [wsprobe](../) toolkit, and marks keepalive
 frames in the WebSocket history so a busy socket stays readable.
 
-It is a companion, not the tool. wsprobe owns its own authenticated sockets and
-covers the handshake and authorization surface end to end; this extension only
-gives it a running start on the one target-specific artifact wsprobe needs - the
-profile - by watching real traffic instead of an exported capture.
+wsprobe opens its own authenticated sockets and runs the tests. This extension
+drafts the one target-specific file wsprobe needs, the profile, from traffic
+Burp has already seen, so you do not have to export a capture first.
 
 ## What it does
 
