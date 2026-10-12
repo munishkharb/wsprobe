@@ -9,7 +9,15 @@ import java.math.BigDecimal
 /**
  * One observed frame, in the shape wsprobe's own NDJSON capture uses.
  */
-data class CapturedFrame(val ts: Double, val direction: String, val channel: String, val frame: Any?)
+data class CapturedFrame(
+    val ts: Double,
+    val direction: String,
+    val channel: String,
+    val frame: Any?,
+    // UI-only: whether this frame was classified as a keepalive, so the tab can
+    // filter it. Not written to the NDJSON capture (that keeps every frame).
+    val heartbeat: Boolean = false,
+)
 
 /**
  * Turn the frames Burp has already proxied into a wsprobe NDJSON capture, so
@@ -36,6 +44,23 @@ object CaptureCodec {
     private const val MASK = "[redacted]"
 
     private val yaml = Yaml()
+
+    private val heartbeatTypes = setOf("ping", "pong", "heartbeat", "hb", "keepalive", "2", "3")
+
+    /** Whether a parsed frame looks like a keepalive, in either direction, by
+     *  its type value (or a bare Engine.IO 2/3). Used only to filter the table. */
+    fun isHeartbeat(frame: Any?): Boolean {
+        if (frame is Map<*, *>) {
+            for (k in listOf("type", "event", "op", "action", "method", "cmd")) {
+                val v = frame[k]
+                if (v is String && v.lowercase() in heartbeatTypes) return true
+                if (v is Number && v.toString() in heartbeatTypes) return true
+            }
+            return false
+        }
+        if (frame is String) return frame.trim() == "2" || frame.trim() == "3"
+        return false
+    }
 
     /** Parse a text payload as JSON (YAML is a JSON superset). A payload that is
      *  not an object or list is kept as the raw string, so nothing is lost. */

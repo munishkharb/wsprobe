@@ -11,7 +11,7 @@ caught, and **zero** findings on the correct server. `uv run pytest -q` →
 **35 passed**. The gate is code, not a camera; the video is a showcase, not the
 gate.
 
-Fixture coverage mapped to the spec's 22-item attack catalog. The fixture seeds
+Fixture coverage mapped to a 22-item WebSocket attack catalog. The fixture seeds
 one clear bug per class for the classes wsprobe tests *directly*; the assist-only
 and later-phase classes are out of the fixture's scope by design.
 

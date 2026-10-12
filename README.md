@@ -2,10 +2,10 @@
 
 [![CI](https://github.com/munishkharb/wsprobe/actions/workflows/ci.yml/badge.svg)](https://github.com/munishkharb/wsprobe/actions/workflows/ci.yml)
 
-A WebSocket security review toolkit. It opens its own authenticated socket and
-covers one protocol surface end to end for a single review: understand a
-capture and draft the target profile, test the handshake, test authorization
-across identities, sweep frame fields, replay state-changing frames.
+A WebSocket pentesting toolkit. It opens its own authenticated socket and covers
+one protocol surface end to end: understand a capture and draft the target
+profile, test the handshake, test authorization across identities, sweep frame
+fields, replay state-changing frames.
 
 ```mermaid
 flowchart LR
@@ -55,10 +55,15 @@ you write a profile for a system you are permitted to test.
 
 ## Install
 
+Python 3.12 or newer. From a clone:
+
 ```
 uv venv --python 3.12
-uv pip install -e '.[dev]'
+uv pip install -e .
 ```
+
+To run the test suite, install the `dev` extra (`uv pip install -e '.[dev]'`)
+and run `uv run pytest -q`.
 
 ## Quickstart
 
@@ -145,14 +150,6 @@ One profile adapts the generic engine to a specific target:
 > `handshake` and `fuzz` were called `matrix` and `sweep` through v0.1.x. The old
 > names still work as hidden aliases, so existing scripts keep running.
 
-## Observations, not verdicts
-
-The handshake matrix and the two-account diff report the observed behavior of
-the server. The tool never prints "confirmed". That word is reserved for the
-operator, after live reproduction. An observation of an insecure shape (an
-upgrade accepted with no credentials, two identities receiving the same private
-reply) is a lead to reproduce, not a finding the tool has closed.
-
 ## JSON output
 
 The observation verbs default to a human table. Pass `--json` to `handshake`,
@@ -193,8 +190,7 @@ list of each.
 
 `handshake` and `diff` also take `--sarif <path>` to write the insecure-shape leads
 as SARIF 2.1.0, so a run drops into any code-scanning viewer. Results are
-`level: warning` and phrased as leads to reproduce, never verdicts; a sample is
-at `docs/sample.sarif.json`.
+`level: warning`; a sample is at `docs/sample.sarif.json`.
 
 ```
 wsprobe handshake profile.yaml --token-file valid.tok --sarif out.sarif.json
@@ -240,26 +236,6 @@ async def main():
 
 asyncio.run(main())
 ```
-
-## Development
-
-Run `pre-commit install` once per clone. On every commit this then runs,
-against staged files:
-
-- **betterleaks**: secrets scan (redacted output), blocks the commit on a hit.
-- **opengrep**: SAST over Python, against a pinned rule pack vendored at
-  `.opengrep/rules` (no registry fetch at commit time), blocks the commit on
-  a finding.
-- the standard pre-commit-hooks set: end-of-file-fixer, trailing-whitespace,
-  check-merge-conflict, detect-private-key.
-
-Both scanners run as already-installed binaries (`brew install betterleaks`;
-opengrep via its install script) rather than something pre-commit builds for
-you. Run everything on demand with `pre-commit run --all-files`.
-
-## Releases
-
-Developed privately and published here in releases. What changed in each version, and why, is in [CHANGELOG.md](CHANGELOG.md).
 
 ## License
 

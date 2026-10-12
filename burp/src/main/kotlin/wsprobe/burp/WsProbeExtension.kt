@@ -63,13 +63,8 @@ class WsProbeExtension : BurpExtension {
     // (analyze, replay) from it - the history-import path.
     private val capturedFrames = ConcurrentLinkedQueue<CapturedFrame>()
 
-    // The results tab: rendered output of each Run wsprobe invocation.
-    private val results = JTextArea().apply {
-        isEditable = false
-        lineWrap = false
-        font = Font(Font.MONOSPACED, Font.PLAIN, 12)
-        text = "wsprobe results\n\nRun wsprobe from the wsprobe menu to drive the CLI against a profile.\n"
-    }
+    // The suite tab: a frame table, a Detail/Results split, and a toolbar.
+    private lateinit var tab: WsProbeTab
 
     private val processRunner = ProcessRunner()
 
@@ -77,24 +72,38 @@ class WsProbeExtension : BurpExtension {
         this.api = api
         api.extension().setName("wsprobe companion")
 
+        val console = WsProbeConsole(api.userInterface().createWebSocketMessageEditor())
+        tab = WsProbeTab(
+            runVerbs = listOf("handshake", "diff", "fuzz", "persist", "race"),
+            detailEditor = api.userInterface().createWebSocketMessageEditor(
+                burp.api.montoya.ui.editor.EditorOptions.READ_ONLY,
+            ),
+            consoleComponent = console.component,
+            onDraftProfile = ::writeDraft,
+            onExportCapture = ::writeCapture,
+            onRun = ::runVerb,
+        )
+        api.userInterface().registerSuiteTab("wsprobe", tab.component)
         api.proxy().registerWebSocketCreationHandler(CreationHandler())
-        api.userInterface().registerSuiteTab("wsprobe", resultsComponent())
         registerMenu()
 
         api.logging().logToOutput(
-            "wsprobe companion loaded. Proxy WebSocket traffic, then " +
-                "wsprobe > Write draft profile.yaml to emit a profile. " +
-                "Run wsprobe > Handshake / Two-account diff / Field sweep / " +
-                "Session persistence / Race drives the CLI and shows the " +
-                "observations in the wsprobe tab. " +
-                "Keepalive frames are marked gray with a 'wsprobe: heartbeat' note."
+            "wsprobe companion loaded. Proxy WebSocket traffic; observed frames fill the " +
+                "wsprobe tab's table. wsprobe > Write draft profile.yaml emits a profile; " +
+                "Write capture.ndjson exports the frames. Run a verb from the tab toolbar " +
+                "or the Run wsprobe menu (handshake / diff / fuzz / persist / race); output " +
+                "lands in the tab's Results pane. Keepalive frames are marked in the history."
         )
     }
 
-    private fun resultsComponent(): JComponent {
-        val panel = JPanel(BorderLayout())
-        panel.add(JScrollPane(results), BorderLayout.CENTER)
-        return panel
+    private fun runVerb(verb: String) {
+        when (verb) {
+            "handshake" -> runHandshake()
+            "diff" -> runDiff()
+            "fuzz" -> runFuzz()
+            "persist" -> runPersist()
+            "race" -> runRace()
+        }
     }
 
     // ---- handshake + frame observation -------------------------------------
@@ -120,7 +129,15 @@ class WsProbeExtension : BurpExtension {
     ) : ProxyMessageHandler {
         override fun handleTextMessageReceived(message: InterceptedTextMessage): TextMessageReceivedAction {
             val isHeartbeat = try { builder.observeText(message.payload()) } catch (_: Exception) { false }
-            recordFrame(CaptureCodec.RECV, message.payload())
+            // Burp fires this for every frame in both directions (it receives
+            // each one before forwarding), so recording only here - keyed on the
+            // real direction - logs each frame exactly once.
+            val dir = if (message.direction() == burp.api.montoya.websocket.Direction.CLIENT_TO_SERVER) {
+                CaptureCodec.SEND
+            } else {
+                CaptureCodec.RECV
+            }
+            recordFrame(dir, message.payload())
             if (isHeartbeat) {
                 // Heartbeat filter: mark keepalives so they can be filtered in
                 // the WebSocket history. Montoya has no "hide from history" API,
@@ -145,7 +162,9 @@ class WsProbeExtension : BurpExtension {
         // wire and drafts from received traffic, so these pass straight through
         // unaltered. Implemented because ProxyMessageHandler requires them.
         override fun handleTextMessageToBeSent(message: InterceptedTextMessage): TextMessageToBeSentAction {
-            recordFrame(CaptureCodec.SEND, message.payload())
+            // Recording happens once in handleTextMessageReceived (keyed on the
+            // message direction), so nothing is logged here - otherwise every
+            // frame would appear twice (received, then forwarded).
             return TextMessageToBeSentAction.continueWith(message)
         }
 
@@ -158,7 +177,13 @@ class WsProbeExtension : BurpExtension {
         private fun recordFrame(direction: String, payload: String) {
             try {
                 val ts = System.currentTimeMillis() / 1000.0
-                capturedFrames.add(CapturedFrame(ts, direction, channel, CaptureCodec.parseFrame(payload)))
+                val parsed = CaptureCodec.parseFrame(payload)
+                // Classify heartbeats from the frame itself so the filter works
+                // in both directions, not just on received frames.
+                val hb = CaptureCodec.isHeartbeat(parsed)
+                val f = CapturedFrame(ts, direction, channel, parsed, hb)
+                capturedFrames.add(f)
+                tab.addFrame(f, hb)
             } catch (_: Exception) {
                 // Capture is a convenience; never let it affect the wire.
             }
@@ -179,6 +204,7 @@ class WsProbeExtension : BurpExtension {
             builders.clear()
             synchronized(channelOrder) { channelOrder.clear() }
             capturedFrames.clear()
+            tab.clearFrames()
             api.logging().logToOutput("wsprobe companion: observed traffic reset.")
         })
 
@@ -505,10 +531,7 @@ class WsProbeExtension : BurpExtension {
     }
 
     private fun appendResult(text: String) {
-        SwingUtilities.invokeLater {
-            results.append("\n" + "-".repeat(72) + "\n" + text)
-            results.caretPosition = results.document.length
-        }
+        tab.appendResult(text)
     }
 
     // ---- helpers -----------------------------------------------------------
