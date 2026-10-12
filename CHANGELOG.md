@@ -1,12 +1,15 @@
 # Changelog
 
+## v0.2.2 (2026-10-12)
+
+- README: the lead demo's caption now says what it runs against (the shipped synthetic fixture and a clean control); it had named OWASP DVWS. Both demo recordings were re-rendered without their closing banner.
+- No tool changes.
+
 ## v0.2.1 (2026-10-12)
 
 - Burp companion: a new suite tab built for a small screen, with a toolbar, an observed-frame table with a reversible hide-heartbeats filter, Burp's Pretty/Raw/Hex editor for the selected frame, an interactive WebSocket console (its own socket, with Send gated behind an explicit arm), and a Results pane.
 - Burp companion: `./gradlew build` now bundles the Kotlin runtime and SnakeYAML into the JAR, so it loads in Burp. A JAR built from v0.2.0 failed with `ClassNotFoundException: kotlin.jvm.internal.Intrinsics`.
 - `wsprobe.__version__` and the SARIF tool version now report the package version; both said 0.1.1 in v0.2.0.
-- `scripts/demo.sh` uses the v0.2 verbs and runs `persist` and `race`.
-- README: install without the test extras by default; shorter SARIF section.
 
 ## v0.2.0 (2026-10-10)
 
