@@ -23,7 +23,7 @@ from .profile import load_profile
 from .repl import run_repl
 from .schema import write_schema
 
-app = typer.Typer(add_completion=False, help="WebSocket security review toolkit. Authorized use only.")
+app = typer.Typer(add_completion=False, help="A WebSocket pentesting toolkit. Authorized use only.")
 
 
 def _read_token(path: Optional[str]) -> Optional[str]:

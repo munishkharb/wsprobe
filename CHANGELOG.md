@@ -1,6 +1,12 @@
 # Changelog
 
-wsprobe is developed privately and published here in releases. Each entry says what changed and why.
+## v0.2.1 (2026-10-12)
+
+- Burp companion: a new suite tab built for a small screen, with a toolbar, an observed-frame table with a reversible hide-heartbeats filter, Burp's Pretty/Raw/Hex editor for the selected frame, an interactive WebSocket console (its own socket, with Send gated behind an explicit arm), and a Results pane.
+- Burp companion: `./gradlew build` now bundles the Kotlin runtime and SnakeYAML into the JAR, so it loads in Burp. A JAR built from v0.2.0 failed with `ClassNotFoundException: kotlin.jvm.internal.Intrinsics`.
+- `wsprobe.__version__` and the SARIF tool version now report the package version; both said 0.1.1 in v0.2.0.
+- `scripts/demo.sh` uses the v0.2 verbs and runs `persist` and `race`.
+- README: install without the test extras by default; shorter SARIF section.
 
 ## v0.2.0 (2026-10-10)
 
@@ -14,7 +20,7 @@ wsprobe is developed privately and published here in releases. Each entry says w
 ## v0.1.1 (2026-10-09)
 
 - README: the matrix's Origin cases are listed, sweep and replay are in the quickstart, and the pacing and capture-masking behaviour is documented.
-- The pre-commit config is valid again (an empty hook block had broken it for anyone installing the hooks).
+- No tool changes.
 
 ## v0.1.0 (2026-09-26)
 

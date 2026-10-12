@@ -52,6 +52,11 @@ tasks.shadowJar {
     archiveBaseName.set("wsprobe-burp")
     archiveClassifier.set("")
     archiveVersion.set(version.toString())
+    // gradleup shadow 9 does not merge the runtime classpath by default, so the
+    // Kotlin stdlib and SnakeYAML must be pulled in explicitly or the JAR loads
+    // in Burp with ClassNotFoundException: kotlin.jvm.internal.Intrinsics.
+    configurations.set(listOf(project.configurations.runtimeClasspath.get()))
+    mergeServiceFiles()
 }
 
 // `gradle build` produces the shadow (fat) JAR as the deliverable.
